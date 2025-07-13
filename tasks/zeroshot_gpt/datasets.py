@@ -139,10 +139,24 @@ def _build_lambada_dataset():
 
 
 def _build_c4_dataset():
-    # Load train and validation datasets
-    traindata = datasets.load_dataset('allenai/c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train')
+    # Load train and validation datasets from local files
+    import json
+    import random
+    
     args = get_args()
     tokenizer = get_tokenizer()
+
+    # Use local C4 dataset files instead of downloading from huggingface
+    c4_file_path = "./assets/data/c4/en/c4-train.00000-of-01024.json"
+    
+    # Load data from local JSON file
+    with open(c4_file_path, 'r', encoding='utf-8') as f:
+        traindata = []
+        for line in f:
+            if line.strip():
+                traindata.append(json.loads(line))
+    
+    print_rank_0(f"Loaded {len(traindata)} samples from local C4 dataset")
 
     # Generate samples from training set
     nsamples=500 # sample sufficient samples for validation. We will only use a subset for calibration, such as 128 samples, each with 4096 tokens

@@ -2,7 +2,8 @@ import torch
 from transformers import LlamaForCausalLM, AutoTokenizer, AutoModelForCausalLM
 import os
 
-HF_TOKEN = os.environ.get("HF_TOKEN")
+# HF_TOKEN = os.environ.get("HF_TOKEN")
+HF_TOKEN = ""
 os.makedirs(f"./assets/cache", exist_ok=True)
 
 def save_llama_model(model_id, save_directory="assets/checkpoints/llama"):

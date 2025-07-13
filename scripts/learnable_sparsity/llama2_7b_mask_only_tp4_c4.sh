@@ -15,12 +15,12 @@ export MASTER_PORT="45522" # select the port
 
 # Device Configs
 NNODES=1 # number of nodes. 
-NPROC_PER_NODE=8 # number of gpus (processes) per node
+NPROC_PER_NODE=4 # number of gpus (processes) per node
 export WORLD_SIZE=$(($NNODES * $NPROC_PER_NODE)) # number of gpus we have in total. Our experiments used 8x8=64 A100
 resume=$1 # resume from checkpoint
 
 # Task Configs
-TAG="llama2-7b-tp8-mask-only-c4-singlenode" # this will be the name of output folder
+TAG="llama2-7b-tp4-mask-only-c4-singlenode" # this will be the name of output folder
 DATA_INDEX_PATH=CACHE # path to the cache folder. Will generate if not exists
 PROJECT_PATH=$(pwd)
 OUTPUT_PATH="$PROJECT_PATH/output"
@@ -34,7 +34,7 @@ SEQ_LENGTH=4096 # sequence length
 # Training Configs
 TOKENIZER_MODEL="$PROJECT_PATH/assets/checkpoints/llama2_7b_hf/tokenizer.model" # path to the tokenizer model
 
-TENSOR_PARALLEL_SIZE=8
+TENSOR_PARALLEL_SIZE=4
 PIPELINE_PARALLEL_SIZE=1
 LR=5e-5
 MIN_LR=5e-6
@@ -52,7 +52,7 @@ EVAL_ITERS=10
 # Set Training configs
 CKPT_SUBDIR="$OUTPUT_PATH/checkpoints/$TAG/train_iters_$TRAIN_ITERS"
 if [ $resume -eq 0 ]; then
-    LOAD="$PROJECT_PATH/output/oneshot_pruning/checkpoint/llama2-7b-tp8.sparse.nmprune.sp0.5hessian.ex0" # load the checkpoint
+    LOAD="$PROJECT_PATH/output/oneshot_pruning/checkpoint/llama2-7b-tp4.sparse.nmprune.sp0.5hessian.ex0" # load the checkpoint
     EXTRA_CMD="--no-load-optim --no-load-rng --finetune --enable-partial-load " 
 else
     LOAD="$CKPT_SUBDIR/ckpt"

@@ -162,18 +162,34 @@ def get_ptb(nsamples, seed, seqlen, model):
     return trainloader, testenc
 
 def get_c4(nsamples, seed, seqlen, model):
-    from datasets import load_dataset
-    traindata = load_dataset(
-        'allenai/c4', 'allenai--c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train'
-    )
-    valdata = load_dataset(
-        'allenai/c4', 'allenai--c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation'
-    )
+    import json
+    import random
+    
+    # Use local C4 dataset files instead of downloading from huggingface
+    train_file_path = "./assets/data/c4/en/c4-train.00000-of-01024.json"
+    val_file_path = "./assets/data/c4/en/c4-validation.00000-of-00008.json"
+    
+    # Load training data from local JSON file
+    traindata = []
+    with open(train_file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            if line.strip():
+                traindata.append(json.loads(line))
+    
+    # Load validation data from local JSON file (if exists)
+    valdata = []
+    try:
+        with open(val_file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.strip():
+                    valdata.append(json.loads(line))
+    except FileNotFoundError:
+        # If validation file doesn't exist, use a subset of training data
+        valdata = traindata[:1100]
 
     from transformers import AutoTokenizer
     tokenizer = AutoTokenizer.from_pretrained(model, use_fast=False)
 
-    import random
     random.seed(seed)
     trainloader = []
     for _ in range(nsamples):
@@ -189,7 +205,7 @@ def get_c4(nsamples, seed, seqlen, model):
         tar[:, :-1] = -100
         trainloader.append((inp, tar))
 
-    valenc = tokenizer(' '.join(valdata[:1100]['text']), return_tensors='pt')
+    valenc = tokenizer(' '.join([item['text'] for item in valdata[:1100]]), return_tensors='pt')
     valenc = valenc.input_ids[:, :(256 * seqlen)]
 
     class TokenizerWrapper:

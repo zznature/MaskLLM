@@ -9,5 +9,5 @@ for i in {00000..00019}; do
               --tokenizer-type Llama2Tokenizer \
               --tokenizer-model ./assets/checkpoints/llama2_7b_hf/tokenizer.model \
               --append-eod \
-              --workers 8
+              --workers 32
 done

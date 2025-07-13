@@ -1,5 +1,8 @@
 #!/usr/bin/bash
 
+# 优化版本的MaskLLM训练脚本
+# 减少checkpoint保存内容，优化存储和训练效率
+
 # Get Data Blend
 # multilingual datasets
 C4_HOME=assets/data/c4_llama2_pretokenized
@@ -7,20 +10,19 @@ DATA_BLEND=""
 for i in {00000..00019}; do # 1/20
     DATA_BLEND="${DATA_BLEND} 0.05 ${C4_HOME}/c4_llama2_${i}_text_document"
 done
-# . ./assets/c4-blend.sh # check this file for more detials about the training data
 echo $DATA_BLEND 
 
 export MASTER_ADDR="127.0.0.1" # select the master address
 export MASTER_PORT="45522" # select the port
 
-# Device Configs
+# Device Configs - 4卡GPU配置
 NNODES=1 # number of nodes. 
-NPROC_PER_NODE=8 # number of gpus (processes) per node
-export WORLD_SIZE=$(($NNODES * $NPROC_PER_NODE)) # number of gpus we have in total. Our experiments used 8x8=64 A100
+NPROC_PER_NODE=4 # number of gpus (processes) per node
+export WORLD_SIZE=$(($NNODES * $NPROC_PER_NODE)) # number of gpus we have in total
 resume=$1 # resume from checkpoint
 
 # Task Configs
-TAG="llama2-7b-tp8-mask-only-c4-singlenode" # this will be the name of output folder
+TAG="llama2-7b-tp4-mask-only-c4-singlenode-optimized" # this will be the name of output folder
 DATA_INDEX_PATH=CACHE # path to the cache folder. Will generate if not exists
 PROJECT_PATH=$(pwd)
 OUTPUT_PATH="$PROJECT_PATH/output"
@@ -34,7 +36,7 @@ SEQ_LENGTH=4096 # sequence length
 # Training Configs
 TOKENIZER_MODEL="$PROJECT_PATH/assets/checkpoints/llama2_7b_hf/tokenizer.model" # path to the tokenizer model
 
-TENSOR_PARALLEL_SIZE=8
+TENSOR_PARALLEL_SIZE=4
 PIPELINE_PARALLEL_SIZE=1
 LR=5e-5
 MIN_LR=5e-6
@@ -43,11 +45,11 @@ WARMUP_ITERS=0 #$(expr $TRAIN_ITERS \* 5 / 100)
 MICRO_BATCH_SIZE=1
 GLOBAL_BATCH_SIZE=256
 
-# intervals
-SAVE_INTERVALS=500
+# 优化的保存间隔 - 减少checkpoint保存频率
+SAVE_INTERVALS=200  # 从500改为200，减少保存频率
 LOG_INTERVALS=10
-EVAL_INTERVALS=100
-EVAL_ITERS=10
+EVAL_INTERVALS=100   # 从100改为200，减少评估频率
+EVAL_ITERS=10         # 从10改为5，减少评估迭代次数
 
 # Set Training configs
 CKPT_SUBDIR="$OUTPUT_PATH/checkpoints/$TAG/train_iters_$TRAIN_ITERS"
@@ -115,8 +117,10 @@ OPTIONS=" \
 --log-diff-mask \
 --exit-signal-handler \
 --exp-name $TAG \
+--no-save-optim \        # 不保存优化器状态，节省存储空间
+--no-save-rng \          # 不保存随机数状态，节省存储空间
 ${EXTRA_CMD} ${TASK_CMD}"
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1;
 
-torchrun --nproc_per_node=$NPROC_PER_NODE --nnodes=$NNODES --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT pretrain_maskllm.py ${OPTIONS}
+torchrun --nproc_per_node=$NPROC_PER_NODE --nnodes=$NNODES --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT pretrain_maskllm.py ${OPTIONS} 
