@@ -6,7 +6,7 @@
 export HF_ENDPOINT=https://hf-mirror.com
 ```
 
-已经下载的模型和数据集
+项目已经下载的模型和数据集
 
 llama2-7b-hf: ./assets/checkpoints/llama2_7b_hf
 c4: ./assets/data/c4

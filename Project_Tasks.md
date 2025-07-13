@@ -32,10 +32,6 @@ module load cuda/12.4
 ```bash
 bash run_apptainer_extended_libs.sh
 ```
-或
-```bash
-bash run_container_simple.sh
-```
 
 #### 直接运行 MaskLLM 脚本
 ```bash
