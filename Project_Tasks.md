@@ -33,7 +33,7 @@ module load cuda/12.4
 bash run_apptainer_extended_libs.sh
 ```
 
-#### 直接运行 MaskLLM 脚本
+#### 运行 MaskLLM 脚本（推荐）
 ```bash
 bash run_container_simple.sh scripts/oneshot/run_llama2_7b_prune_tp4.sh hessian
 ```
@@ -145,7 +145,6 @@ export LD_LIBRARY_PATH=/usr/local/cuda-12.3/NsightSystems-cli-2023.4.1/target-li
 - 环境变量: `CUDA_HOME=/usr/local/cuda`, `CUDA_ROOT=/usr/local/cuda`
 
 
-
 ### 推荐工作流程
 1. **启动容器**：`bash run_apptainer_extended_libs.sh`
 2. **验证环境**：`bash verify_container_env.sh`
@@ -172,12 +171,7 @@ export LD_LIBRARY_PATH=/usr/local/cuda-12.3/NsightSystems-cli-2023.4.1/target-li
 - ✅ 所有 CUDA 库和工具可用
 - ✅ MaskLLM 成功启动
 - ✅ 模型构建开始
-- 🔄 **下一步**：等待 MaskLLM 完成模型构建和剪枝任务
 
-#### 明天的工作重点
-1. **监控任务进度**：观察 MaskLLM 运行状态
-2. **性能优化**：根据运行情况调整参数
-3. **结果分析**：分析剪枝效果和性能
 
 ### 解决方案说明
 - ✅ **使用容器内原生环境**：Python、PyTorch、transformer_engine
@@ -190,10 +184,24 @@ export LD_LIBRARY_PATH=/usr/local/cuda-12.3/NsightSystems-cli-2023.4.1/target-li
 - ✅ **自动解决nvcc问题**：绑定 CUDA 工具链 `/usr/local/cuda/bin`
 - ✅ **解决库文件缺失问题**：确保cuDNN、cuPTI、NCCL等库和工具可用
 
-### 容器优势
-- ✅ 无需复杂环境配置
-- ✅ 所有依赖已预装
-- ✅ NVIDIA 官方优化
-- ✅ 版本兼容性保证
-- ✅ 即开即用
-- ✅ 混合库路径，确保所有库文件可用
+## 开展稀疏训练
+
+```bash
+bash run_maskllm_native.sh scripts/learnable_sparsity/llama2_7b_mask_only_tp4_c4.sh 0
+```
+
+## 评测训练完成后的checkpoint
+
+容器内先加载环境，然后测评 PPL：
+checkpoint: `output/checkpoints/llama2-7b-tp4-mask-only-c4-singlenode/train_iters_2000/ckpt/iter_0002000`
+
+```bash
+bash run_maskllm_native.sh scripts/ppl/evaluate_llama2_wikitext2.sh output/checkpoints/llama2-7b-tp4-mask-only-c4-singlenode/train_iters_2000/ckpt/iter_0002000 7b 4 sparse
+```
+
+## 增量训练
+
+在`output/checkpoints/llama2-7b-tp4-mask-only-c4-singlenode/train_iters_2000`的基础上，继续稀疏训练。
+数据集为 wikitext-103.
+
+### 预处理数据集

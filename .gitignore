@@ -8,3 +8,6 @@ megatron/fused_kernels/build
 megatron/core/datasets/helpers.cpython-310-x86_64-linux-gnu.so
 wandb
 *.sif
+
+# IDEs
+.specstory

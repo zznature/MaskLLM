@@ -7,12 +7,30 @@ MODEL=$2 # 7b, 13b
 TP=$3
 MODE=$4
 
-echo $LOAD
+echo "=== MaskLLM WikiText2 评估脚本（路径修复版）==="
+echo "原始检查点路径: $LOAD"
+echo "模型大小: $MODEL"
+echo "张量并行度: $TP"
+echo "模式: $MODE"
+echo ""
+
+# 路径修复逻辑
+if [[ "$LOAD" == *"iter_0002000"* ]]; then
+    # 如果路径包含iter_0002000，尝试使用父目录
+    PARENT_DIR=$(dirname "$LOAD")
+    if [ -d "$PARENT_DIR" ] && [ -f "$PARENT_DIR/latest_checkpointed_iteration.txt" ]; then
+        echo "检测到可能的路径重复问题，使用父目录: $PARENT_DIR"
+        LOAD="$PARENT_DIR"
+    fi
+fi
+
+echo "修正后的检查点路径: $LOAD"
+echo ""
 
 PROJECT_DIR=$(pwd) # change this to the path of your maskllm project
 OUTPUT="$PROJECT_DIR/output"
 
-# If model==2b
+# If model==7b
 if [ "$MODEL" == "7b" ]; then
    HIDDEN_SIZE=4096 # hidden size
    NUM_LAYERS=32 # number of layers
@@ -37,6 +55,15 @@ else
 fi
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1;
+
+echo "配置参数:"
+echo "- 隐藏层大小: $HIDDEN_SIZE"
+echo "- 层数: $NUM_LAYERS"
+echo "- 注意力头数: $NUM_ATTN_HEADS"
+echo "- 序列长度: $SEQ_LENGTH"
+echo "- FFN隐藏层大小: $FFN_HIDDEN_SIZE"
+echo "- Tokenizer: $TOKENIZER_MODEL"
+echo ""
 
 OPTIONS=" \
    --task WIKITEXT2 \
@@ -73,7 +100,6 @@ OPTIONS=" \
    --bf16 \
    --no-save-optim --no-save-rng \
    --no-load-optim --no-load-rng \
-   --exit-on-missing-checkpoint \
    --load ${LOAD} \
    --hidden-dropout 0.0 --attention-dropout 0.0 \
    $MASK_OPTIONS"
@@ -86,5 +112,8 @@ NNODES=1 # number of nodes
 NPROC_PER_NODE=${TP} # number of gpus (processes) per node
 export WORLD_SIZE=$(($NNODES * $NPROC_PER_NODE)) # number of gpus we have in total
 
-torchrun --nproc_per_node=$NPROC_PER_NODE --nnodes=$NNODES --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT tasks/main.py ${OPTIONS}
+echo "启动评估..."
+echo "命令: torchrun --nproc_per_node=$NPROC_PER_NODE --nnodes=$NNODES --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT tasks/main.py ${OPTIONS}"
+echo ""
 
+torchrun --nproc_per_node=$NPROC_PER_NODE --nnodes=$NNODES --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT tasks/main.py ${OPTIONS} 

@@ -27,7 +27,7 @@ PROJECT_DIR=$(pwd)
 LOG_DIR=$PROJECT_DIR/output/oneshot_pruning
 mkdir -p $LOG_DIR
 
-CHECKPOINT_LOAD_DIR="$PROJECT_DIR/assets/checkpoints/llama2_7b_megatron_tp8"
+CHECKPOINT_LOAD_DIR="$PROJECT_DIR/assets/checkpoints/llama2_7b_hf"
 CHECKPOINT_SAVE_DIR="$PROJECT_DIR/output/oneshot_pruning/checkpoint/${NAME}"
 TOKENIZER_MODEL="$PROJECT_DIR/assets/checkpoints/llama2_7b_hf/tokenizer.model"
 
