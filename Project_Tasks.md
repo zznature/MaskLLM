@@ -4,7 +4,7 @@
 
 登录节点: hd02-gpfs-quorum-02
 GPU计算节点: hd02-gpu1-0056,hd02-gpu1-0024,hd02-gpu1-0017,hd02-gpu1-0029
-登录方法: `ssh hd02-gpu1-0017`
+登录方法: `ssh hd02-gpu1-0017`, optional `srun --jobid=4879 --pty bash -i`
 
 ### 加载模块
 ```bash
@@ -199,9 +199,29 @@ checkpoint: `output/checkpoints/llama2-7b-tp4-mask-only-c4-singlenode/train_iter
 bash run_maskllm_native.sh scripts/ppl/evaluate_llama2_wikitext2.sh output/checkpoints/llama2-7b-tp4-mask-only-c4-singlenode/train_iters_2000/ckpt/iter_0002000 7b 4 sparse
 ```
 
-## 增量训练
+## 性能提升-增量训练
 
-在`output/checkpoints/llama2-7b-tp4-mask-only-c4-singlenode/train_iters_2000`的基础上，继续稀疏训练。
-数据集为 wikitext-103.
+提升模型的在 wikitext2 的 perplexity 测试成绩.
+- 在`output/checkpoints/llama2-7b-tp4-mask-only-c4-singlenode/train_iters_2000`的基础上，继续稀疏训练。
+- 数据集为 wikitext-103-v1 (wikitext-103-v1 has the same preprocessing and tokenization format as the wikitext2 test set).
 
 ### 预处理数据集
+下载数据集, 保存到 `assets/data/wikitext-103/`.
+pretokenize数据集(基于 llama2-7b tokenizer),保存到 `assets/data/wikitext-103/pretokenized/`.
+脚本保存到`scripts/data/pretokenize_wikitext-103_llama2-7b.sh`.
+- [] `pretokenize_wikitext-103_llama2-7b.sh`需要将处理任务改到在 CPU 上执行，不需要调用 GPU。
+
+Seq_length: 4096
+total_iters: 200
+
+### 开展增量训练
+Continue further mask learning, maintain the sparsity of the model(N=2, M=4).
+
+1. The gumbel-temperature-range start from 2, and end with 0.05.
+2. The gumbel-scale-range start from 1e2, and end with 5e2.
+3. The weight-reg start from 1e-5, and end with 1e-5.
+
+```bash
+bash run_maskllm_native.sh scripts/incremental/llama2_7b_mask_only_wikitext103_tp4.sh 0
+```
+0 表示不resume(start from llama2-7b-tp4-mask-only-c4-singlenode/train_iters_2000)，1 表示resume。

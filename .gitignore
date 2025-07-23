@@ -11,3 +11,5 @@ wandb
 
 # IDEs
 .specstory
+.cursor
+.vscode
