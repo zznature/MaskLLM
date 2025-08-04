@@ -21,7 +21,7 @@ export WORLD_SIZE=$(($NNODES * $NPROC_PER_NODE)) # number of gpus we have in tot
 resume=$1 # resume from checkpoint
 
 # Task Configs
-TAG="llama2-7b-tp4-mask-only-wikitext103-0728" # this will be the name of output folder
+TAG="llama2-7b-tp4-mask-only-wikitext103-0724" # this will be the name of output folder
 DATA_INDEX_PATH=CACHE # path to the cache folder. Will generate if not exists
 PROJECT_PATH=$(pwd)
 OUTPUT_PATH="$PROJECT_PATH/output"
@@ -39,15 +39,15 @@ TENSOR_PARALLEL_SIZE=4
 PIPELINE_PARALLEL_SIZE=1
 LR=2e-5
 MIN_LR=2e-6
-TRAIN_ITERS=800 # number of iterations to train for incremental training (increased for WikiText-103)
-WARMUP_ITERS=80 # warmup iterations (10% of TRAIN_ITERS)
+TRAIN_ITERS=400 # number of iterations to train for incremental training (increased for WikiText-103)
+WARMUP_ITERS=40 # warmup iterations (10% of TRAIN_ITERS)
 MICRO_BATCH_SIZE=1
 GLOBAL_BATCH_SIZE=64 # Reduced for WikiText-103 (smaller dataset, avoid overfitting)
 
 # intervals
-SAVE_INTERVALS=800
+SAVE_INTERVALS=400
 LOG_INTERVALS=10
-EVAL_INTERVALS=40
+EVAL_INTERVALS=20
 EVAL_ITERS=5
 
 # Set Training configs

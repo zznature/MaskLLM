@@ -44,7 +44,7 @@ bash run_container_simple.sh scripts/oneshot/run_llama2_7b_prune_tp4.sh hessian
 bash verify_container_env.sh
 ```
 
-### 运行 MaskLLM 任务
+## 运行 MaskLLM 任务
 
 #### 方法1：使用原生环境脚本（推荐）
 ```bash
@@ -196,7 +196,7 @@ bash run_maskllm_native.sh scripts/learnable_sparsity/llama2_7b_mask_only_tp4_c4
 checkpoint: `output/checkpoints/llama2-7b-tp4-mask-only-c4-singlenode/train_iters_2000/ckpt/iter_0002000`
 
 ```bash
-bash run_maskllm_native.sh scripts/ppl/evaluate_llama2_wikitext2.sh output/checkpoints/llama2-7b-tp4-mask-only-c4-singlenode/train_iters_2000/ckpt/iter_0002000 7b 4 sparse
+bash run_maskllm_native.sh scripts/ppl/evaluate_llama2_wikitext2.sh output/checkpoints/llama2-7b-tp4-mask-only-c4-singlenode/train_iters_2000/ckpt 7b 4 sparse
 ```
 
 ## 性能提升-增量训练
@@ -225,3 +225,102 @@ Continue further mask learning, maintain the sparsity of the model(N=2, M=4).
 bash run_maskllm_native.sh scripts/incremental/llama2_7b_mask_only_wikitext103_tp4.sh 0
 ```
 0 表示不resume(start from llama2-7b-tp4-mask-only-c4-singlenode/train_iters_2000)，1 表示resume。
+
+### 增量训练后PPL评测
+```bash
+bash run_maskllm_native.sh scripts/ppl/evaluate_llama2_wikitext2.sh output/checkpoints/llama2-7b-tp4-mask-only-wikitext103-0724/train_iters_400/ckpt 7b 4 sparse
+```
+
+## 输出训练后checkpoint为HF格式
+
+根据export_hf.md文档，已创建完整的checkpoint到HuggingFace格式转换流程。
+
+### 转换脚本说明
+
+#### 主要脚本 
+1. **`quick_convert_to_hf.sh`** - 一键转换脚本 (推荐使用)
+2. **`convert_checkpoint_to_hf.sh`** - 完整转换流程主脚本 (支持Float16)
+3. **`convert_hf_to_float16.py`** - Float16格式转换工具
+4. **`generate_precomputed_mask.sh`** - 生成预计算mask文件（可选）
+5. **`setup_float16_conversion.sh`** - 权限设置和使用说明脚本
+
+#### 辅助脚本
+- **`scripts/tools/convert_llama2_7b_tp4_to_tp1.sh`** - TP=4到TP=1转换脚本
+
+### 转换流程
+
+#### 前置条件
+确保以下文件/目录存在：
+- 源checkpoint: `output/checkpoints/llama2-7b-tp4-mask-only-wikitext103-c4format/train_iters_800/ckpt/iter_0000800`
+- HF参考模型: `assets/checkpoints/llama2_7b_hf` （如不存在需先下载）
+
+#### 执行转换
+
+##### 方法1: 快速设置并转换 (推荐)
+```bash
+# 自动设置所有脚本权限并显示使用说明
+bash setup_float16_conversion.sh
+
+# 一键转换 (推荐)
+bash run_maskllm_native.sh quick_convert_to_hf.sh
+```
+
+##### 方法2: 手动设置并转换
+```bash
+# 手动设置脚本可执行权限
+chmod +x convert_checkpoint_to_hf.sh generate_precomputed_mask.sh scripts/tools/convert_llama2_7b_tp4_to_tp1.sh convert_hf_to_float16.py
+
+# 在容器内执行完整转换流程
+bash run_maskllm_native.sh convert_checkpoint_to_hf.sh
+```
+
+转换步骤包括：
+1. **合并稀疏mask**: 使用 `tool_apply_sparsity.py` 将mask合并到模型参数
+2. **TP转换**: 从TP=4转换到TP=1
+3. **HF导出**: 转换为HuggingFace格式 (FP32)
+4. **tokenizer复制**: 复制必要的tokenizer文件
+5. **Float16转换**: 转换为Float16格式以减少存储空间
+6. **清理临时文件**: 删除中间的FP32文件
+
+#### 输出结果
+- HF格式模型 (Float16): `output/checkpoints/llama2_7b_hf_maskllm_wikitext103_c4format/`
+
+#### Float16格式优势
+- ✅ 模型大小减半 (约7GB → 3.5GB)
+- ✅ 推理速度提升
+- ✅ 显存占用减少
+- ✅ 与lm-eval-harness完全兼容
+
+#### 可选：生成预计算mask文件
+```bash
+# 生成压缩的mask文件，用于与官方HF模型结合评测
+bash run_maskllm_native.sh generate_precomputed_mask.sh
+```
+
+输出：
+- 压缩mask文件: `output/precomputed_masks/llama2_7b_hf_maskllm_wikitext103_c4format_mask_compressed.npz`
+
+### 评测HF格式模型
+
+#### 使用项目内的评测脚本
+```bash
+# 评测转换后的HF模型
+python eval_llama_ppl.py --model output/checkpoints/llama2_7b_hf_maskllm_wikitext103_c4format/
+
+# 或者使用官方HF模型+mask评测
+python eval_llama_ppl.py --model meta-llama/Llama-2-7b-hf --mask output/precomputed_masks/llama2_7b_hf_maskllm_wikitext103_c4format_mask_compressed.npz
+```
+
+#### 使用lm-eval-harness评测
+```bash
+# 评测转换后的HF模型
+lm_eval --model hf \
+    --model_args pretrained=output/checkpoints/llama2_7b_hf_maskllm_wikitext103_c4format \
+    --tasks hellaswag,piqa,winogrande,arc_easy,arc_challenge
+```
+
+### 使用说明
+1. **在容器内运行**: 所有脚本都需要在MaskLLM容器环境内执行
+2. **确保依赖**: 转换脚本会自动安装必要的Python包（transformers, wandb等）
+3. **存储空间**: 转换过程会创建多个中间文件，确保有足够存储空间
+4. **错误处理**: 脚本包含错误检查，遇到问题会提示并停止
