@@ -4,7 +4,7 @@
 
 登录节点: hd02-gpfs-quorum-02
 GPU计算节点: hd02-gpu1-0056,hd02-gpu1-0024,hd02-gpu1-0017,hd02-gpu1-0029
-登录方法: `ssh hd02-gpu1-0017`, optional `srun --jobid=4879 --pty bash -i`
+登录方法: `srun --jobid=4879 --overlap --pty bash -i`
 
 ### 加载模块
 ```bash
