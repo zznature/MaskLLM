@@ -42,6 +42,10 @@ if [ $# -lt 1 ]; then
     echo "评测脚本示例:"
     echo "  $0 scripts/ppl/evaluate_llama2_wikitext2.sh <checkpoint_path> 7b 4 sparse"
     echo ""
+    echo "转换脚本示例:"
+    echo "  $0 scripts/tools/convert_llama8b_hf_to_megatron.sh"
+    echo "  $0 tools/checkpoint/util.py --model-type GPT --loader llama8b_hf [args...]"
+    echo ""
     exit 1
 fi
 
@@ -53,6 +57,14 @@ if [[ "$SCRIPT_PATH" == *"evaluate"* ]] || [[ "$SCRIPT_PATH" == *"ppl"* ]]; then
     echo "运行评测脚本: $SCRIPT_PATH"
     echo "参数: $@"
     SCRIPT_TYPE="evaluation"
+elif [[ "$SCRIPT_PATH" == *"convert"* ]] || [[ "$SCRIPT_PATH" == *"checkpoint"* ]]; then
+    echo "运行转换脚本: $SCRIPT_PATH"
+    echo "参数: $@"
+    SCRIPT_TYPE="conversion"
+elif [[ "$SCRIPT_PATH" == *"test"* ]] || [[ "$SCRIPT_PATH" == *"phase"* ]]; then
+    echo "运行测试脚本: $SCRIPT_PATH"
+    echo "参数: $@"
+    SCRIPT_TYPE="test"
 elif [[ "$SCRIPT_PATH" == *"prune"* ]]; then
     if [ $# -lt 1 ]; then
         echo "错误: 剪枝脚本需要指定剪枝方法"
@@ -79,7 +91,13 @@ CONDA_PREFIX="/data/home/zdhs0054/jpu/software/miniconda3/envs/maskllm"
 
 # 设置环境变量，使用混合方案
 export PATH="/usr/local/bin:/usr/bin:/usr/sbin:/sbin:/usr/local/cuda/bin"
-export PYTHONPATH="/usr/local/lib/python3.10/dist-packages:/usr/local/lib/python3.10/site-packages"
+
+# 设置当前工作目录（用于.ext_pkgs路径）
+CURRENT_DIR="$(pwd)"
+EXT_PKGS_DIR="${CURRENT_DIR}/.ext_pkgs"
+
+# 设置PYTHONPATH，容器内原生包优先，.ext_pkgs作为fallback
+export PYTHONPATH="/usr/local/lib/python3.10/dist-packages:/usr/local/lib/python3.10/site-packages:${EXT_PKGS_DIR}:$(pwd)"
 export LD_LIBRARY_PATH="/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/lib/python3.10/dist-packages/torch_tensorrt/lib:/usr/local/cuda/compat/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/cuda/extras/CUPTI/lib64:/usr/local/cuda/targets/x86_64-linux/lib:/usr/lib/x86_64-linux-gnu:${CONDA_PREFIX}/lib:/opt/nsight-systems-libs:/opt/nsight-compute-libs:/opt/nccl_libs"
 export CUDA_HOME="/usr/local/cuda"
 export CUDA_ROOT="/usr/local/cuda"
@@ -97,6 +115,7 @@ unset CONDA_PKGS_DIRS
 echo "环境变量设置完成:"
 echo "  PATH: $PATH"
 echo "  PYTHONPATH: $PYTHONPATH"
+echo "  EXT_PKGS_DIR: $EXT_PKGS_DIR"
 echo "  LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 echo ""
 
@@ -239,8 +258,42 @@ echo ""
 echo "验证环境..."
 python3.10 --version
 which python3.10
+echo ""
+
+echo "验证核心包..."
 python3.10 -c "import torch; print('PyTorch 版本:', torch.__version__); print('CUDA 可用:', torch.cuda.is_available())"
-python3.10 -c "import transformer_engine; print('transformer_engine 可用')"
+
+echo ""
+echo "验证 transformer_engine..."
+python3.10 -c "
+import sys
+try:
+    import transformer_engine as te
+    print('transformer_engine 版本:', getattr(te, '__version__', 'unknown'))
+    print('transformer_engine 路径:', te.__file__)
+    print('transformer_engine.pytorch 可用:', hasattr(te, 'pytorch'))
+    if hasattr(te, 'pytorch'):
+        print('transformer_engine.pytorch.Linear 可用:', hasattr(te.pytorch, 'Linear'))
+except ImportError as e:
+    print('transformer_engine 导入失败:', e)
+    print('当前PYTHONPATH前5个路径:')
+    for i, path in enumerate(sys.path[:5]):
+        print(f'  {i}: {path}')
+"
+
+echo ""
+echo "验证 transformers fallback..."
+python3.10 -c "
+try:
+    import transformers
+    print('transformers 版本:', transformers.__version__)
+    print('transformers 路径:', transformers.__file__)
+except ImportError as e:
+    print('transformers 导入失败:', e)
+"
+
+echo ""
+echo "验证 torchrun..."
 /usr/local/bin/torchrun --version
 
 # 验证 CUDA 工具链
@@ -262,6 +315,24 @@ if [ "$SCRIPT_TYPE" = "pruning" ]; then
 elif [ "$SCRIPT_TYPE" = "evaluation" ]; then
     # 评测脚本：直接传递所有参数
     bash "$SCRIPT_PATH" "$@"
+elif [ "$SCRIPT_TYPE" = "conversion" ]; then
+    # 转换脚本：可能是bash脚本或python脚本
+    if [[ "$SCRIPT_PATH" == *.py ]]; then
+        # Python脚本：使用python3.10运行
+        python3.10 "$SCRIPT_PATH" "$@"
+    else
+        # Bash脚本：直接运行
+        bash "$SCRIPT_PATH" "$@"
+    fi
+elif [ "$SCRIPT_TYPE" = "test" ]; then
+    # 测试脚本：根据扩展名判断类型
+    if [[ "$SCRIPT_PATH" == *.py ]]; then
+        # Python测试脚本：使用python3.10运行
+        python3.10 "$SCRIPT_PATH" "$@"
+    else
+        # Bash测试脚本：直接运行
+        bash "$SCRIPT_PATH" "$@"
+    fi
 else
     # 训练脚本：直接传递所有参数
     bash "$SCRIPT_PATH" "$@"

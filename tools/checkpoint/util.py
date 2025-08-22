@@ -116,6 +116,7 @@ def main():
                         choices=['GPT', 'BERT'],
                         help='Type of the model')
     parser.add_argument('--loader', type=str, default='megatron',
+                        choices=['megatron', 'llama2_hf', 'llama8b_hf'],
                         help='Module name to load checkpoint, should be on python path')
     parser.add_argument('--saver', type=str, default='megatron',
                         help='Module name to save checkpoint, shdoul be on python path')
@@ -134,6 +135,8 @@ def main():
     #saver = load_plugin('saver', known_args.saver)
     if known_args.loader == 'megatron':
         import loader_megatron as loader
+    elif known_args.loader == 'llama8b_hf':
+        import loader_llama8b_hf as loader
     else:
         import loader_llama2_hf as loader
     import saver_megatron as saver

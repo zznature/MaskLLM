@@ -10,6 +10,7 @@ from megatron.core.datasets.megatron_tokenizer import MegatronTokenizer
 from .bert_tokenization import FullTokenizer as FullBertTokenizer
 from .gpt2_tokenization import GPT2Tokenizer
 from .auto_tokenization import AutoTokenizer
+from .llama8b_tokenizer import _Llama8bTokenizer
 
 
 def build_tokenizer(args):
@@ -45,6 +46,9 @@ def build_tokenizer(args):
     elif args.tokenizer_type == 'Llama2Tokenizer':
         assert args.tokenizer_model is not None
         tokenizer = _Llama2Tokenizer(args.tokenizer_model)
+    elif args.tokenizer_type == 'Llama8bTokenizer':
+        assert args.tokenizer_model is not None
+        tokenizer = _Llama8bTokenizer(args.tokenizer_model)
     elif args.tokenizer_type == 'NullTokenizer':
         assert args.vocab_size is not None
         tokenizer = _NullTokenizer(args.vocab_size)
