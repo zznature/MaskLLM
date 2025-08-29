@@ -1,0 +1,6 @@
+环境配置文件状态:
+/data/home/zdhs0054/.bashrc - 修改于 27 天前
+⚪ /data/home/zdhs0054/.bash_profile - 文件不存在
+/data/home/zdhs0054/.profile - 修改于 1327 天前
+/etc/environment - 修改于 623 天前
+⚪ /data/home/zdhs0054/.modulerc - 文件不存在

@@ -6,7 +6,7 @@
 
 echo "=== MaskLLM 原生环境运行脚本 (混合库路径) ==="
 echo "使用容器内原生环境:"
-echo "  - Python: python3"
+echo "  - Python: /usr/bin/python3.10"
 echo "  - PyTorch: 2.2.0a0+81ea7a4"
 echo "  - transformer_engine: 1.2"
 echo "  - torchrun: /usr/local/bin/torchrun"
@@ -115,32 +115,24 @@ if [ "$HAS_HPCX_CONFLICT" = true ]; then
     unset HPCX_DIR HPCX_HOME HPCX_ROOT HPCX_MPI_DIR HPCX_UCX_DIR HPCX_UCC_DIR HPCX_HCOLL_DIR
     unset OMPI_HOME OMPI_ROOT MPI_HOME MPI_ROOT
     
-    # 2. 强力禁用HPC-X组件（更彻底的UCC隔离）
-    export OMPI_MCA_pml=^ucx,^hcoll,^ucc
-    export OMPI_MCA_btl=^openib,^uct,^ucx
-    export OMPI_MCA_coll=^hcoll,^ucx,^ucc
-    export OMPI_MCA_osc=^ucx,^ucc
-    export OMPI_MCA_spml=^ucx,^ucc
-    export UCX_TLS=^ud,^dc,^rc,^tcp,^shm
-    export UCC_TLS=^ucp,^sharp,^tcp,^shm,^cuda
-    export UCC_CLS=^sharp,^basic
+    # 2. 强力禁用HPC-X组件
+    export OMPI_MCA_pml=^ucx,^hcoll
+    export OMPI_MCA_btl=^openib,^uct
+    export OMPI_MCA_coll=^hcoll,^ucx
+    export OMPI_MCA_osc=^ucx
+    export OMPI_MCA_spml=^ucx
+    export UCX_TLS=^ud,^dc,^rc
+    export UCC_TLS=^ucp,^sharp
+    export UCC_CLS=^sharp
     export UCX_LOG_LEVEL=error
     export UCC_LOG_LEVEL=error
     
-    # 3. 彻底禁用UCC相关功能（基于comprehensive_fix.sh验证成功的配置）
-    export NCCL_UCX_DISABLE=1
-    export TORCH_UCC_DISABLE=1
-    export UCC_DISABLE=1
-    export HCOLL_ENABLE_MCAST=0
-    
-    # 4. 强制通信后端配置（避免UCC）
+    # 3. 强制通信后端配置
     export TORCH_DISTRIBUTED_BACKEND=gloo
     export NCCL_SOCKET_IFNAME=lo
     export NCCL_IB_DISABLE=1
     export NCCL_P2P_DISABLE=1
     export NCCL_SHM_DISABLE=0
-    export NCCL_TREE_THRESHOLD=0  # 强制使用ring算法避免UCC
-    export NCCL_ALGO=ring
     
     echo "✅ HPC-X深度冲突修复已应用"
 else
@@ -155,37 +147,8 @@ export PATH="/usr/local/bin:/usr/bin:/usr/sbin:/sbin:/usr/local/cuda/bin"
 CURRENT_DIR="$(pwd)"
 EXT_PKGS_DIR="${CURRENT_DIR}/.ext_pkgs"
 
-# 🎯 简化智能混合PYTHONPATH配置（基于comprehensive_fix.sh成功经验）
-echo "=== 简化智能混合PYTHONPATH配置 ==="
-
-# 检查.ext_pkgs目录存在性
-if [ -d "$EXT_PKGS_DIR" ]; then
-    echo "✅ 检测到.ext_pkgs目录"
-    echo "📦 将整个.ext_pkgs作为Python包路径添加"
-    
-    # 显示关键包状态
-    KEY_PACKAGES=("transformers" "tokenizers" "huggingface_hub" "torch" "numpy")
-    for package in "${KEY_PACKAGES[@]}"; do
-        if [ -d "$EXT_PKGS_DIR/$package" ]; then
-            if [[ "$package" == "torch" || "$package" == "numpy" ]]; then
-                echo "  🔴 发现$package (将被容器内版本覆盖)"
-            else
-                echo "  ✅ 发现$package (可安全使用)"
-            fi
-        fi
-    done
-else
-    echo "⚠️ .ext_pkgs目录不存在"
-fi
-
-# 🎯 使用验证成功的简化PYTHONPATH设置方法
-# 基于comprehensive_fix.sh的成功经验，使用直接字符串拼接
-export PYTHONPATH="/usr/local/lib/python3.10/dist-packages:/usr/local/lib/python3.10/site-packages:${CURRENT_DIR}/.ext_pkgs:${CURRENT_DIR}"
-
-echo "✅ 简化PYTHONPATH配置完成:"
-echo "  📦 .ext_pkgs路径: ${CURRENT_DIR}/.ext_pkgs"
-echo "  🐳 容器内优先: /usr/local/lib/python3.10/dist-packages"
-echo ""
+# 设置PYTHONPATH，容器内原生包优先，.ext_pkgs作为fallback
+export PYTHONPATH="/usr/local/lib/python3.10/dist-packages:/usr/local/lib/python3.10/site-packages:${EXT_PKGS_DIR}:$(pwd)"
 
 # 🎉 集成验证成功的NGC容器库修复方案
 echo "=== NGC容器库依赖优化配置 ==="
@@ -261,48 +224,21 @@ if [ -d "$CONDA_LIBS_DIR" ]; then
             NEW_LD_LIBRARY_PATH="$NEW_LD_LIBRARY_PATH:$CLEAN_ORIGINAL_PATH"
         fi
         
-        # HPC-X冲突深度清理（增强版）
+        # HPC-X冲突深度清理
         if [ "$HAS_HPCX_CONFLICT" = true ]; then
-            echo "🧹 应用HPC-X路径深度清理（增强版）..."
-            
-            # 更彻底的HPC-X库路径清理
+            echo "🧹 应用HPC-X路径深度清理..."
             HPCX_PATH_PATTERNS=(
                 "/opt/hpcx"
                 "/usr/local/hpcx" 
                 "/opt/mellanox"
                 "/usr/lib64/openmpi"
                 "/usr/lib/openmpi"
-                "/opt/hpcx/ucc/lib"
-                "/opt/hpcx/ucx/lib"
-                "/opt/hpcx/ompi/lib"
                 "hpcx"
                 "ucx"
                 "ucc"
                 "hcoll"
                 "sharp"
             )
-            
-            # 强制从系统PATH中移除HPC-X路径
-            NEW_PATH=""
-            IFS=':' read -ra PATH_PARTS <<< "$PATH"
-            for path_part in "${PATH_PARTS[@]}"; do
-                INCLUDE_PATH=true
-                for pattern in "${HPCX_PATH_PATTERNS[@]}"; do
-                    if [[ "$path_part" == *"$pattern"* ]]; then
-                        echo "  🗑️  从PATH移除HPC-X路径: $path_part"
-                        INCLUDE_PATH=false
-                        break
-                    fi
-                done
-                if [ "$INCLUDE_PATH" = true ] && [ -n "$path_part" ]; then
-                    if [ -z "$NEW_PATH" ]; then
-                        NEW_PATH="$path_part"
-                    else
-                        NEW_PATH="$NEW_PATH:$path_part"
-                    fi
-                fi
-            done
-            export PATH="$NEW_PATH"
             
             FINAL_LD_LIBRARY_PATH=""
             IFS=':' read -ra ADDR <<< "$NEW_LD_LIBRARY_PATH"
@@ -330,24 +266,6 @@ if [ -d "$CONDA_LIBS_DIR" ]; then
         # 清理重复路径并设置
         export LD_LIBRARY_PATH=$(echo "$NEW_LD_LIBRARY_PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's/:$//')
         echo "✅ NGC容器优化LD_LIBRARY_PATH已设置"
-        
-        # 再次强化UCC冲突预防（在LD_LIBRARY_PATH设置后）
-        if [ "$HAS_HPCX_CONFLICT" = true ]; then
-            echo "🛡️ 再次强化UCC冲突预防..."
-            export LD_PRELOAD=""  # 清空可能的预加载库
-            
-            # 强制禁用可能的UCC库加载
-            export TORCH_UCC_DISABLE=1
-            export UCC_DISABLE=1
-            export NCCL_UCX_DISABLE=1
-            export UCX_DISABLE=1
-            
-            # 强制PyTorch使用GLOO后端
-            export TORCH_DISTRIBUTED_BACKEND=gloo
-            export PYTORCH_CUDA_ALLOC_CONF=backend:native
-            
-            echo "✅ UCC冲突预防强化完成"
-        fi
         
     else
         echo "❌ 关键库文件缺失，使用备用方案"
@@ -378,8 +296,9 @@ echo "✅ conda环境变量已清理（使用容器内原生环境）"
 
 echo "环境变量设置完成:"
 echo "  PATH: $PATH"
-echo "  PYTHONPATH (前3个路径): $(echo $PYTHONPATH | cut -d: -f1-3)..."
-echo "  LD_LIBRARY_PATH (前3个路径): $(echo $LD_LIBRARY_PATH | cut -d: -f1-3)..."
+echo "  PYTHONPATH: $PYTHONPATH"
+echo "  EXT_PKGS_DIR: $EXT_PKGS_DIR"
+echo "  LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 echo ""
 
 # 🎉 库文件已通过LD_LIBRARY_PATH直接访问，无需符号链接
@@ -390,12 +309,12 @@ echo ""
 
 # 验证环境
 echo "验证环境..."
-python3 --version
-which python3
+python3.10 --version
+which python3.10
 echo ""
 
 echo "验证核心包..."
-python3 -c "
+python3.10 -c "
 import torch
 print('PyTorch 版本:', torch.__version__)
 print('PyTorch 路径:', torch.__file__)
@@ -421,7 +340,7 @@ except Exception as e:
 
 echo ""
 echo "验证 transformer_engine..."
-python3 -c "
+python3.10 -c "
 import sys
 try:
     import transformer_engine as te
@@ -438,27 +357,14 @@ except ImportError as e:
 "
 
 echo ""
-echo "验证 transformers (智能混合)..."
-python3 -c "
-import sys
+echo "验证 transformers fallback..."
+python3.10 -c "
 try:
     import transformers
-    print('✅ transformers 版本:', transformers.__version__)
-    print('✅ transformers 路径:', transformers.__file__)
-    # 验证是否从.ext_pkgs加载
-    if '.ext_pkgs' in transformers.__file__:
-        print('📦 来源: .ext_pkgs (外部包)')
-    else:
-        print('🐳 来源: 容器内原生')
-    
-    # 测试基本功能
-    from transformers import AutoTokenizer
-    print('✅ AutoTokenizer 导入成功')
+    print('transformers 版本:', transformers.__version__)
+    print('transformers 路径:', transformers.__file__)
 except ImportError as e:
-    print('❌ transformers 导入失败:', e)
-    print('当前PYTHONPATH前3个路径:')
-    for i, path in enumerate(sys.path[:3]):
-        print(f'  {i}: {path}')
+    print('transformers 导入失败:', e)
 "
 
 echo ""
@@ -487,8 +393,8 @@ elif [ "$SCRIPT_TYPE" = "evaluation" ]; then
 elif [ "$SCRIPT_TYPE" = "conversion" ]; then
     # 转换脚本：可能是bash脚本或python脚本
     if [[ "$SCRIPT_PATH" == *.py ]]; then
-        # Python脚本：使用python3运行
-        python3 "$SCRIPT_PATH" "$@"
+        # Python脚本：使用python3.10运行
+        python3.10 "$SCRIPT_PATH" "$@"
     else
         # Bash脚本：直接运行
         bash "$SCRIPT_PATH" "$@"
@@ -496,8 +402,8 @@ elif [ "$SCRIPT_TYPE" = "conversion" ]; then
 elif [ "$SCRIPT_TYPE" = "test" ]; then
     # 测试脚本：根据扩展名判断类型
     if [[ "$SCRIPT_PATH" == *.py ]]; then
-        # Python测试脚本：使用python3运行
-        python3 "$SCRIPT_PATH" "$@"
+        # Python测试脚本：使用python3.10运行
+        python3.10 "$SCRIPT_PATH" "$@"
     else
         # Bash测试脚本：直接运行
         bash "$SCRIPT_PATH" "$@"
@@ -505,8 +411,8 @@ elif [ "$SCRIPT_TYPE" = "test" ]; then
 else
     # 训练脚本：根据扩展名判断类型
     if [[ "$SCRIPT_PATH" == *.py ]]; then
-        # Python训练脚本：使用python3运行
-        python3 "$SCRIPT_PATH" "$@"
+        # Python训练脚本：使用python3.10运行
+        python3.10 "$SCRIPT_PATH" "$@"
     else
         # Bash训练脚本：直接运行
         bash "$SCRIPT_PATH" "$@"

@@ -1,0 +1,15 @@
+容器文件状态:
+-rwxrwxr-x 1 zdhs0054 zdhs0054 10135441408 Jun 14 16:19 pytorch_24.01-py3.sif
+total 28
+drwxrwxr-x  2 zdhs0054 zdhs0054 4096 Jul 13 17:54 .
+drwxrwxr-x 23 zdhs0054 zdhs0054 4096 Aug 26 15:36 ..
+-rw-rw-r--  1 zdhs0054 zdhs0054 3284 Jul  7 16:23 HF_CONNECTION_FIX.md
+-rw-rw-r--  1 zdhs0054 zdhs0054 4912 Jul  7 16:57 TRAINING_CONFIG_ANALYSIS.md
+-rwxrwxr-x  1 zdhs0054 zdhs0054 1146 Jul  6 18:48 check_container_env.sh
+-rw-rw-r--  1 zdhs0054 zdhs0054 1832 Jul  6 18:58 check_container_info.sh
+-rw-rw-r--  1 zdhs0054 zdhs0054 9585 Jul  6 19:08 container_check_info.sh
+-rwxrwxr-x  1 zdhs0054 zdhs0054  776 Jun 23 22:12 run_pytorch.slurm
+-rwxrwxr-x  1 zdhs0054 zdhs0054  438 Jul  7 16:22 set_hf_mirror.sh
+-rw-rw-r--  1 zdhs0054 zdhs0054 2810 Jul  6 19:12 verify_container_env.sh
+❌ verify_container_env.sh - 文件不存在
+❌ check_container_info.sh - 文件不存在

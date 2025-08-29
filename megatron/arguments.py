@@ -1298,6 +1298,7 @@ def _add_data_args(parser):
                                 'SentencePieceTokenizer',
                                 'GPTSentencePieceTokenizer',
                                 'Llama2Tokenizer',
+                                'Llama8bTokenizer',
                                 'AutoTokenizer',
                                 'NullTokenizer'],
                        help='What type of tokenizer to use.')
