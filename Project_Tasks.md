@@ -363,3 +363,146 @@ lm_eval --model hf \
 2. **确保依赖**: 转换脚本会自动安装必要的Python包（transformers, wandb等）
 3. **存储空间**: 转换过程会创建多个中间文件，确保有足够存储空间
 4. **错误处理**: 脚本包含错误检查，遇到问题会提示并停止
+
+## Git同步工作流程
+
+### SSH多账户认证配置
+
+项目使用SSH密钥认证访问GitHub，支持多账户管理：
+
+#### SSH密钥配置
+```bash
+# 生成zznature账户专用SSH密钥
+ssh-keygen -t ed25519 -C "zhouzhang92@gmail.com" -f ~/.ssh/id_ed25519_zznature
+
+# 配置SSH多账户支持
+cat >> ~/.ssh/config << 'EOF'
+
+# GitHub account: zznature
+Host github-zznature
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/id_ed25519_zznature
+    IdentitiesOnly yes
+
+EOF
+```
+
+#### Git仓库配置
+```bash
+# 设置项目级别的git用户信息
+git config user.name "zznature"
+git config user.email "zhouzhang92@gmail.com"
+
+# 配置远程仓库使用zznature专用SSH配置
+git remote set-url origin git@github-zznature:zznature/MaskLLM.git
+```
+
+#### GitHub密钥配置
+1. 复制公钥内容：`cat ~/.ssh/id_ed25519_zznature.pub`
+2. 登录GitHub账户 `zznature`
+3. 访问 https://github.com/settings/ssh
+4. 点击 "New SSH key"，添加公钥
+
+### 分支同步流程
+
+#### 准备工作
+```bash
+# 检查当前状态
+git status
+git branch -a
+
+# 确保在正确分支
+git checkout H100_Llama8b
+```
+
+#### 文件清理与同步
+```bash
+# 1. 清理冗余实验文件（可选）
+bash cleanup_llama8b_scripts.sh
+
+# 2. 添加核心项目文件
+bash git_sync_h100_llama8b.sh
+
+# 3. 提交更改
+git commit -m "Add Llama8b inference and training infrastructure
+
+- Llama8b inference scripts with HF tokenizer integration
+- Container environment setup and dependency management  
+- Progress documentation and phase summaries
+- Essential training configurations for sparse learning
+- Cleanup redundant experimental scripts"
+
+# 4. 推送到远程仓库
+git push origin H100_Llama8b
+```
+
+#### 同步的核心文件
+
+**项目配置文件：**
+- `Project_SelfDefinedModels.md` - 模型开发文档
+- `Project_Tasks.md` - 任务跟踪文档
+- `run_maskllm_native.sh` - 容器环境脚本
+- `megatron/arguments.py` - Megatron参数配置
+- `tools/preprocess_data.py` - 数据预处理工具
+
+**Llama8b推理组件：**
+- `llama8b_scripts/llama8b_infer.py` - 推理脚本
+- `llama8b_scripts/run_llama8b_infer.sh` - 推理运行器
+- `llama8b_scripts/verify_tokenizer_match.py` - 分词器验证
+- `llama8b_scripts/fix_inference_env_*.sh` - 环境修复脚本
+
+**文档与配置：**
+- `llama8b_scripts/PHASE*_SUMMARY.md` - 阶段进度文档
+- `llama8b_scripts/llama8b_inference_guide.md` - 推理指南
+- `llama8b_scripts/create_overlay_img.sh` - 容器扩展脚本
+
+### SSH认证工作原理
+
+#### 多账户SSH认证机制
+```
+SSH配置文件 (~/.ssh/config):
+├── github.com → 默认密钥 (krzz2q账户)
+└── github-zznature → 专用密钥 (zznature账户)
+
+Git远程URL映射:
+git@github-zznature:zznature/MaskLLM.git
+     ↓
+SSH连接: github.com + zznature专用密钥
+     ↓  
+GitHub认证: zznature账户权限
+```
+
+#### 认证流程
+1. `git push` 读取远程URL: `git@github-zznature:zznature/MaskLLM.git`
+2. SSH查找配置: `github-zznature` → 使用 `id_ed25519_zznature` 密钥
+3. 连接GitHub: 实际连接 `github.com`，但使用zznature密钥认证
+4. GitHub验证: 通过公钥识别为zznature用户
+5. 权限检查: 确认zznature对MaskLLM仓库有写权限
+6. 操作完成: 推送成功
+
+#### 故障排除
+
+**认证失败问题：**
+```bash
+# 测试SSH连接
+ssh -T git@github-zznature
+
+# 期望输出：Hi zznature! You've successfully authenticated...
+```
+
+**网络连接问题：**
+- HPC环境可能限制HTTPS (端口443)
+- SSH (端口22) 通常更稳定
+- 如遇连接超时，优先使用SSH而非HTTPS
+
+**权限问题：**
+- 确保SSH公钥已添加到正确的GitHub账户
+- 验证git配置指向正确的用户名和邮箱
+- 检查远程URL使用正确的SSH别名
+
+### 使用说明
+1. **一次性配置**: SSH密钥和git配置只需设置一次
+2. **日常同步**: 使用 `git_sync_h100_llama8b.sh` 快速同步
+3. **多环境支持**: 同一服务器可同时访问多个GitHub账户
+4. **安全性**: 私钥永不离开本地服务器，通过公钥验证身份
