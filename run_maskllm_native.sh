@@ -3,6 +3,11 @@
 # MaskLLM 原生环境运行脚本
 # 支持训练和评测功能
 # 使用容器内的原生环境运行 MaskLLM，混合方案保留必要库路径
+#
+# ✅ 集成HPC-X UCX/UCC冲突解决方案 (2024-08-31)
+# - 自动检测并加载兼容的UCX v1.12 + UCC v1.2.0库
+# - 解决 ImportError: undefined symbol: ucs_mpool_params_reset 问题
+# - 在所有LD_LIBRARY_PATH配置中优先使用兼容库
 
 echo "=== MaskLLM 原生环境运行脚本 (混合库路径) ==="
 echo "使用容器内原生环境:"
@@ -327,9 +332,27 @@ if [ -d "$CONDA_LIBS_DIR" ]; then
             NEW_LD_LIBRARY_PATH="$FINAL_LD_LIBRARY_PATH"
         fi
         
+        # 🎯 集成UCX/UCC冲突解决方案（基于策略3成功验证）
+        UCX_UCC_INSTALL_DIR="/data/home/zdhs0054/zzhou/MaskLLM/ucx_ucc_install_optimized"
+        if [ -d "$UCX_UCC_INSTALL_DIR/lib" ] && [ -f "$UCX_UCC_INSTALL_DIR/lib/libucs.so" ]; then
+            echo "🎯 检测到UCX/UCC解决方案，应用兼容库..."
+            # 将兼容的UCX/UCC库路径添加到最高优先级
+            NEW_LD_LIBRARY_PATH="$UCX_UCC_INSTALL_DIR/lib:$NEW_LD_LIBRARY_PATH"
+            
+            # 设置UCX/UCC环境变量
+            export UCX_DIR="$UCX_UCC_INSTALL_DIR"
+            export UCC_DIR="$UCX_UCC_INSTALL_DIR"
+            
+            echo "  ✅ UCX/UCC兼容库: $UCX_UCC_INSTALL_DIR/lib (最高优先级)"
+            echo "  ✅ UCX_DIR: $UCX_DIR"
+            echo "  ✅ UCC_DIR: $UCC_DIR"
+        else
+            echo "  ⚠️  UCX/UCC兼容库未找到，使用默认配置"
+        fi
+        
         # 清理重复路径并设置
         export LD_LIBRARY_PATH=$(echo "$NEW_LD_LIBRARY_PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's/:$//')
-        echo "✅ NGC容器优化LD_LIBRARY_PATH已设置"
+        echo "✅ NGC容器优化LD_LIBRARY_PATH已设置（含UCX/UCC解决方案）"
         
         # 再次强化UCC冲突预防（在LD_LIBRARY_PATH设置后）
         if [ "$HAS_HPCX_CONFLICT" = true ]; then
@@ -353,12 +376,40 @@ if [ -d "$CONDA_LIBS_DIR" ]; then
         echo "❌ 关键库文件缺失，使用备用方案"
         # 备用方案：使用原始设置
         BASE_LD_LIBRARY_PATH="/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/cuda/lib64:/usr/local/cuda/compat/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64"
+        
+        # 🎯 备用方案也集成UCX/UCC解决方案
+        UCX_UCC_INSTALL_DIR="/data/home/zdhs0054/zzhou/MaskLLM/ucx_ucc_install_optimized"
+        if [ -d "$UCX_UCC_INSTALL_DIR/lib" ] && [ -f "$UCX_UCC_INSTALL_DIR/lib/libucs.so" ]; then
+            echo "🎯 备用方案中应用UCX/UCC解决方案..."
+            BASE_LD_LIBRARY_PATH="$UCX_UCC_INSTALL_DIR/lib:$BASE_LD_LIBRARY_PATH"
+            
+            # 设置UCX/UCC环境变量
+            export UCX_DIR="$UCX_UCC_INSTALL_DIR"
+            export UCC_DIR="$UCX_UCC_INSTALL_DIR"
+            
+            echo "  ✅ 备用方案UCX/UCC兼容库已集成"
+        fi
+        
         export LD_LIBRARY_PATH="$BASE_LD_LIBRARY_PATH"
     fi
 else
     echo "❌ 未检测到NGC容器库结构，使用标准配置"
     # 标准配置
     BASE_LD_LIBRARY_PATH="/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/cuda/lib64:/usr/local/cuda/compat/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64"
+    
+    # 🎯 标准配置也集成UCX/UCC解决方案
+    UCX_UCC_INSTALL_DIR="/data/home/zdhs0054/zzhou/MaskLLM/ucx_ucc_install_optimized"
+    if [ -d "$UCX_UCC_INSTALL_DIR/lib" ] && [ -f "$UCX_UCC_INSTALL_DIR/lib/libucs.so" ]; then
+        echo "🎯 标准配置中应用UCX/UCC解决方案..."
+        BASE_LD_LIBRARY_PATH="$UCX_UCC_INSTALL_DIR/lib:$BASE_LD_LIBRARY_PATH"
+        
+        # 设置UCX/UCC环境变量
+        export UCX_DIR="$UCX_UCC_INSTALL_DIR"
+        export UCC_DIR="$UCX_UCC_INSTALL_DIR"
+        
+        echo "  ✅ 标准配置UCX/UCC兼容库已集成"
+    fi
+    
     export LD_LIBRARY_PATH="$BASE_LD_LIBRARY_PATH"
 fi
 

@@ -14,3 +14,29 @@ wandb
 .cursor
 .vscode
 .ext_pkgs
+
+# UCX/UCC编译和安装目录
+ucx_ucc_build/
+ucx_ucc_build_optimized/
+ucx_ucc_install_optimized/
+ucx_ucc_install_optimized_backup_*/
+
+# 临时UCX/UCC脚本
+llama8b_scripts/fix_ucc_master.sh
+llama8b_scripts/fix_ucc_strategy1_isolation.sh
+llama8b_scripts/fix_ucc_strategy2_version.sh
+llama8b_scripts/fix_ucc_strategy3_rebuild.sh
+llama8b_scripts/fix_ucc_strategy3_container_optimized.sh
+llama8b_scripts/enhanced_ucc_fix_test.sh
+llama8b_scripts/balanced_ucc_fix.sh
+llama8b_scripts/deep_ucc_diagnosis.sh
+llama8b_scripts/continue_ucc_build.sh
+llama8b_scripts/continue_ucc_build_enhanced.sh
+llama8b_scripts/test_ucc_after_cudnn.sh
+llama8b_scripts/verify_ucc_status.sh
+llama8b_scripts/quick_ucc_verify.sh
+llama8b_scripts/set_isolated_env.sh
+llama8b_scripts/set_version_matched_env.sh
+llama8b_scripts/test_container_ucc.sh
+llama8b_scripts/test_maskllm_final.sh
+run_maskllm_native_0831.sh
