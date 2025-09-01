@@ -190,7 +190,7 @@ bash run_maskllm_native.sh llama8b_scripts/prepare_c4_megatron_llama8b.sh 0 0
    - ✅ cuDNN: `/opt/conda_libs/libcudnn.so.8.9.7` 直接访问
    - ✅ cuPTI: `/opt/conda_libs/python3.10/site-packages/nvidia/cuda_cupti/lib/libcupti.so.12` 直接访问
    - ✅ NCCL: `/opt/conda_libs/python3.10/site-packages/nvidia/nccl/lib/libnccl.so.2` 直接访问
-3. **🛡️ HPC-X冲突**：完全解决 - 自动清理冲突路径，强制禁用冲突组件
+
 4. **🚀 PyTorch环境**：完全正常
    - ✅ PyTorch 2.2.0a0+81ea7a4 导入成功
    - ✅ CUDA 可用，检测到4个H100 GPU

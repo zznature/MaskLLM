@@ -16,8 +16,6 @@ wandb
 .ext_pkgs
 
 # UCX/UCC编译和安装目录
-ucx_ucc_build/
-ucx_ucc_build_optimized/
 ucx_ucc_install_optimized/
 ucx_ucc_install_optimized_backup_*/
 
