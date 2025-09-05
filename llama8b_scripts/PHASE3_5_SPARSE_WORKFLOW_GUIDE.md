@@ -66,7 +66,7 @@ ls -la output/checkpoints/llama8b_megatron_tp8/
 
 **预期输出**: `output/checkpoints/llama8b_megatron_tp8/` 目录包含8个分片的模型文件
 
-### Step 3: 数据预处理 (Phase 3.4) 📝
+### Step 3: 数据预处理 (Phase 3.4) 📝 ✅
 
 **目标**: 将C4数据集转换为Megatron格式并使用Llama8b tokenizer
 
@@ -78,9 +78,15 @@ bash run_maskllm_native.sh llama8b_scripts/prepare_c4_megatron_llama8b.sh
 ls -la assets/data/c4_llama8b_pretokenized/
 ```
 
-**预期输出**: 
-- `c4_llama8b_00000_text_document.bin/idx` 等文件
+**✅ 实际输出** (已完成): 
+- `c4_llama8b_00000_text_document.bin/idx` ~ `c4_llama8b_00019_text_document.bin/idx`
 - 总共40个文件 (20个.bin + 20个.idx)
+- 总大小: ~13.6GB
+
+**数据路径配置**:
+- **文件前缀**: `assets/data/c4_llama8b_pretokenized/c4_llama8b`
+- **文件格式**: `c4_llama8b_{00000-00019}_text_document.{bin,idx}`
+- **Megatron路径**: 自动检测所有编号文件
 
 ### Step 4: 稀疏化准备 (Phase 3.5) ✂️ ✅
 
@@ -190,7 +196,30 @@ ImportError: /opt/hpcx/ucc/lib/libucc.so.1: undefined symbol: ucc_ee_ack_event
 --checkpoint-activations
 ```
 
-#### 4. 性能优化
+#### 4. 数据路径问题
+
+**问题**: `预处理数据不存在: c4_llama8b_text_document.bin`
+
+**根因**: 
+- 实际文件: `c4_llama8b_00000_text_document.bin` (带编号)
+- 脚本期望: `c4_llama8b_text_document.bin` (无编号)
+
+**解决**: 已修复脚本，自动检测所有编号文件
+```bash
+# 修复后的数据路径配置
+DATA_PATH="file1 file2 file3..."  # 多文件格式
+```
+
+#### 5. HuggingFace datasets库问题
+
+**问题**: `AttributeError: module 'datasets' has no attribute 'load_dataset'`
+
+**解决**: 
+- 使用本地C4数据集 (已可用)
+- 跳过WikiText2在线数据集下载
+- 稀疏化校准不受影响
+
+#### 6. 性能优化
 
 **建议配置**:
 - **CPU核心**: 使用72个workers进行数据预处理

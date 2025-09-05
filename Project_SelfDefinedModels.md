@@ -226,6 +226,15 @@ bash run_maskllm_native.sh llama8b_scripts/llama8b_presparse_training_tp8.sh 0
 bash run_maskllm_native.sh llama8b_scripts/llama8b_presparse_training_tp8.sh 1
 ```
 
+**前置条件:**
+- ✅ 完成Phase 3.4数据预处理: `assets/data/c4_llama8b_pretokenized/c4_llama8b_*`
+- ✅ 完成稀疏化准备: `output/oneshot_pruning/checkpoint/`
+
+**数据路径说明:**
+- **数据格式**: 多文件编号格式 `c4_llama8b_{00000-00019}_text_document.{bin,idx}`
+- **自动检测**: 脚本自动发现所有可用数据文件
+- **总文件数**: 20个.bin文件 + 20个.idx文件
+
 **训练配置:**
 - **训练迭代**: 10,000
 - **批大小**: 16 (global)
@@ -753,14 +762,15 @@ bash llama8b_scripts/install_missing_packages.sh
 
 #### **下一步可执行**:
 ```bash
-# 选项1: 稀疏化训练 (基于已生成的预稀疏模型)
+# 选项1: 稀疏化训练 (基于已生成的预稀疏模型) 从预稀疏checkpoint开始
 bash run_maskllm_native.sh llama8b_scripts/llama8b_presparse_training_tp8.sh 0
+
+# 继续训练 从训练checkpoint恢复
+bash run_maskllm_native.sh llama8b_scripts/llama8b_presparse_training_tp8.sh 1
 
 # 选项2: 稀疏化训练兼容性最终验证 (已修复词汇表问题)
 bash run_maskllm_native.sh llama8b_scripts/llama8b_mask_only_tp8_c4_vocab_fixed.sh 0
 
-# 选项3: C4训练数据转换 (任务1.4)
-bash run_maskllm_native.sh llama8b_scripts/prepare_c4_megatron_llama8b.sh
 ```
 
 #### **技术风险**: 🟢 **极低**
