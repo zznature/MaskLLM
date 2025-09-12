@@ -4,7 +4,7 @@
 
 登录节点: hd02-gpfs-quorum-02
 GPU计算节点: hd02-gpu1-0056,hd02-gpu1-0024,hd02-gpu1-0017,hd02-gpu1-0029
-登录方法: `srun --jobid=4879 --overlap --pty bash -i`
+登录方法: `srun --jobid=4661 --overlap --pty bash -i`
 
 ### 加载模块
 ```bash
@@ -482,6 +482,18 @@ GitHub认证: zznature账户权限
 6. 操作完成: 推送成功
 
 #### 故障排除
+
+```bash
+# 设置 wandb 为 offline mode
+export WANDB_MODE=offline
+
+# 设置 CUDA devices 为 0-7
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+
+# 验证环境变量
+echo "WANDB_MODE=$WANDB_MODE"
+echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+```
 
 **认证失败问题：**
 ```bash

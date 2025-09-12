@@ -87,9 +87,9 @@ echo "  - 稀疏模式: ${PATTERN} (2:4结构化)"
 
 # 训练参数 (与验证的llama2脚本保持一致)
 TRAIN_ITERS=2000
-SAVE_INTERVAL=200 # 更频繁保存以防数值问题
+SAVE_INTERVAL=100 # 更频繁保存以防数值问题
 EVAL_INTERVAL=50 # 更频繁评估以监控稳定性
-LOG_INTERVAL=10 # 更频繁日志以及时发现问题
+LOG_INTERVAL=2 # 更频繁日志以及时发现问题
 WARMUP_ITERS=400 # 增加warmup以稳定初期训练
 
 # 创建日志目录
@@ -166,7 +166,7 @@ echo "  - 训练迭代: $TRAIN_ITERS"
 echo "  - 保存间隔: $SAVE_INTERVAL"
 echo "  - 评估间隔: $EVAL_INTERVAL"
 echo "  - 批大小: 256 (global), 1 (micro)"
-echo "  - 学习率: 5e-5 → 5e-6"
+echo "  - 学习率: 2e-5 → 2e-6"
 echo "  - 🔑 兼容性: --finetune --enable-partial-load"
 
 # 启动训练 (使用正确的MaskLLM预训练器)

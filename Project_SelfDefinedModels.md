@@ -12,7 +12,6 @@ GPU node: hd02-gpu1-0029(训练采用 8 卡, 每卡 80G 显存, 共 640G 显存.
 ```bash
 bash run_maskllm_native.sh llama8b_scripts/run_llama8b_infer.sh
 ```
-
 ## 1. 模型分析
 
 ### 1.1 Llama8b模型特点
