@@ -4,11 +4,12 @@
 # 解决 libcupti.so.12、libcudnn.so.8、libnccl.so.2 和 nvcc 等工具缺失问题
 
 # 加载模块
+source /etc/profile.d/modules.sh
 module load apptainer
 module load cuda/12.4
 
 # 设置 GPU 环境变量
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 # 设置系统限制
 ulimit -l unlimited

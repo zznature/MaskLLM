@@ -86,16 +86,16 @@ echo "  - 稀疏率: ${SPARSITY} (50%)"
 echo "  - 稀疏模式: ${PATTERN} (2:4结构化)"
 
 # 训练参数 (与验证的llama2脚本保持一致)
-TRAIN_ITERS=2400
+TRAIN_ITERS=2000
 SAVE_INTERVAL=100 # 更频繁保存以防数值问题
 EVAL_INTERVAL=50 # 更频繁评估以监控稳定性
-LOG_INTERVAL=1 # 更频繁日志以及时发现问题
+LOG_INTERVAL=2 # 更频繁日志以及时发现问题
 WARMUP_ITERS=400 # 增加warmup以稳定初期训练
 
 # 创建日志目录
 LOG_DIR="$PROJECT_DIR/output/logs/llama8b_presparse_training"
 mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/training3_${DATETIME}.log"
+LOG_FILE="$LOG_DIR/training_${DATETIME}.log"
 
 echo "📝 日志文件: $LOG_FILE"
 

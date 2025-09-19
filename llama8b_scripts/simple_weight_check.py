@@ -1,199 +1,81 @@
 #!/usr/bin/env python3
 """
-简化权重检查 - 针对Megatron结构问题的专门解决方案
+最简单的权重检查脚本
 """
-
-import os
-import sys
 import torch
+import os
 
-# 添加项目根目录到Python路径
-PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if PROJECT_DIR not in sys.path:
-    sys.path.insert(0, PROJECT_DIR)
+# 模型路径
+model_path = "/data/home/zdhs0054/zzhou/MaskLLM/output/checkpoints/llama8b_maskllm_training_tp1/iter_0002000/mp_rank_00/model_optim_rng_fp16.pt"
 
-def inspect_checkpoint_structure():
-    """深入检查Megatron checkpoint结构"""
-    print("🔍 深入检查Megatron checkpoint结构...")
-    
-    try:
-        checkpoint_path = "output/checkpoints/llama8b_megatron_tp8/iter_0000001/mp_rank_00/model_optim_rng.pt"
-        
-        if not os.path.exists(checkpoint_path):
-            print(f"❌ 文件不存在: {checkpoint_path}")
-            return None
-            
-        print(f"📂 加载: {checkpoint_path}")
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
-        
-        print("📋 Checkpoint顶层键:")
-        for key in checkpoint.keys():
-            print(f"  - {key}: {type(checkpoint[key])}")
-        
-        if 'model' in checkpoint:
-            model = checkpoint['model']
-            print(f"\n📋 Model键数量: {len(model.keys())}")
-            
-            # 递归探索结构
-            def explore_structure(obj, path="", max_depth=3, current_depth=0):
-                if current_depth >= max_depth:
-                    return
-                
-                if isinstance(obj, dict):
-                    for key, value in list(obj.items())[:5]:  # 只看前5个键
-                        new_path = f"{path}.{key}" if path else key
-                        if hasattr(value, 'shape'):
-                            print(f"  {new_path}: {value.shape} ({value.dtype})")
-                        elif isinstance(value, dict):
-                            print(f"  {new_path}: dict({len(value)} keys)")
-                            explore_structure(value, new_path, max_depth, current_depth + 1)
-                        else:
-                            print(f"  {new_path}: {type(value)}")
-            
-            print("\n📋 Model结构探索:")
-            explore_structure(model)
-            
-        return checkpoint
-        
-    except Exception as e:
-        print(f"❌ 检查失败: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+print("🔍 快速权重检查")
+print(f"文件: {os.path.basename(model_path)}")
+print(f"大小: {os.path.getsize(model_path) / (1024**3):.1f} GB")
 
-def check_hf_weights():
-    """检查HF权重基本信息"""
-    print("\n🔍 HF权重基本检查...")
-    
-    try:
-        hf_path = "assets/checkpoints/Llama8b/pytorch_model.bin"
-        hf_weights = torch.load(hf_path, map_location='cpu')
-        
-        print(f"✅ HF权重加载成功")
-        print(f"   总键数: {len(hf_weights.keys())}")
-        
-        # 关键层检查
-        key_layers = {
-            'embedding': 'model.embed_tokens.weight',
-            'first_q': 'model.layers.0.self_attn.q_proj.weight',
-            'first_mlp': 'model.layers.0.mlp.gate_proj.weight',
-            'norm': 'model.norm.weight',
-            'lm_head': 'lm_head.weight'
-        }
-        
-        print("\n📋 关键层检查:")
-        for name, key in key_layers.items():
-            if key in hf_weights:
-                shape = hf_weights[key].shape
-                print(f"  ✅ {name}: {shape}")
-            else:
-                print(f"  ❌ {name}: 缺失")
-        
-        # 参数统计
-        total_params = sum(p.numel() for p in hf_weights.values())
-        print(f"\n📊 总参数: {total_params:,}")
-        
-        return hf_weights
-        
-    except Exception as e:
-        print(f"❌ HF权重检查失败: {e}")
-        return None
+# 加载模型
+checkpoint = torch.load(model_path, map_location='cpu')
+model = checkpoint['model']['language_model']
 
-def compare_basic_info(hf_weights, mg_checkpoint):
-    """基础信息对比"""
-    print("\n📊 基础信息对比...")
-    
-    if hf_weights is None or mg_checkpoint is None:
-        print("❌ 无法对比，权重加载失败")
-        return
-    
-    # HF信息
-    hf_params = sum(p.numel() for p in hf_weights.values())
-    hf_embed_shape = hf_weights.get('model.embed_tokens.weight', torch.tensor([])).shape
-    
-    print(f"HF模型:")
-    print(f"  参数总数: {hf_params:,}")
-    print(f"  Embedding: {hf_embed_shape}")
-    print(f"  权重键数: {len(hf_weights.keys())}")
-    
-    # Megatron信息
-    if 'model' in mg_checkpoint:
-        print(f"\nMegatron checkpoint:")
-        print(f"  顶层结构: {list(mg_checkpoint.keys())}")
-        print(f"  模型键数: {len(mg_checkpoint['model'].keys())}")
-        
-        # 尝试找到实际权重
-        model = mg_checkpoint['model']
-        if len(model.keys()) == 1:
-            key = list(model.keys())[0]
-            if isinstance(model[key], dict):
-                print(f"  嵌套结构: {key} -> {len(model[key].keys())} 子键")
-                
-                # 查找embedding
-                def find_embedding(weights_dict, path=""):
-                    for k, v in weights_dict.items():
-                        current_path = f"{path}.{k}" if path else k
-                        if 'embedding' in k.lower() and hasattr(v, 'shape'):
-                            return current_path, v.shape
-                        elif isinstance(v, dict):
-                            result = find_embedding(v, current_path)
-                            if result:
-                                return result
-                    return None
-                
-                embed_info = find_embedding(model[key])
-                if embed_info:
-                    print(f"  找到Embedding: {embed_info[0]} -> {embed_info[1]}")
+print(f"\n📂 language_model结构:")
+print(f"- 顶层键: {list(model.keys())}")
 
-def main():
-    """主函数"""
-    print("🔍 简化权重检查 - Megatron结构问题诊断")
-    print("=" * 60)
-    
-    # 1. 检查HF权重
-    hf_weights = check_hf_weights()
-    
-    # 2. 深入检查Megatron结构
-    mg_checkpoint = inspect_checkpoint_structure()
-    
-    # 3. 基础对比
-    compare_basic_info(hf_weights, mg_checkpoint)
-    
-    # 4. 总结
-    print("\n" + "=" * 60)
-    print("📊 诊断总结")
-    print("=" * 60)
-    
-    hf_ok = hf_weights is not None
-    mg_ok = mg_checkpoint is not None
-    
-    print(f"HF权重: {'✅ 正常' if hf_ok else '❌ 失败'}")
-    print(f"Megatron checkpoint: {'✅ 可读' if mg_ok else '❌ 失败'}")
-    
-    if hf_ok and mg_ok:
-        print("\n💡 诊断结论:")
-        print("  ✅ 两种格式的权重文件都可以正常读取")
-        print("  ✅ HF权重结构完全正常")
-        print("  ⚠️ Megatron权重结构需要进一步解析")
-        print("  💡 转换本身是成功的，只是结构解析需要调整")
-        
-        print("\n🎯 Phase 3.3 结论:")
-        print("  ✅ 核心验证: HF模型完整，Megatron转换成功")
-        print("  ✅ 文件完整性: 两种格式都可以正确读取")
-        print("  ✅ 基础一致性: 转换过程无数据丢失")
-        print("  🎉 可以确信Phase 3.3验证通过！")
-        
-        return 0
-    else:
-        print("\n❌ 需要检查文件完整性")
-        return 1
+# 探索encoder layers
+encoder = model['encoder']
+layers = encoder['layers']
+print(f"- 层数: {len(layers)}")
 
-if __name__ == "__main__":
-    try:
-        exit_code = main()
-        sys.exit(exit_code)
-    except Exception as e:
-        print(f"\n❌ 检查过程中发生错误: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+# 检查第1层
+layer1 = layers['1']
+print(f"\n🎯 第1层结构:")
+print(f"- 键: {list(layer1.keys())}")
+
+# 检查self_attention
+sa = layer1['self_attention']
+print(f"- self_attention键: {list(sa.keys())}")
+
+# 找到query_key_value权重
+if 'query_key_value' in sa and 'weight' in sa['query_key_value']:
+    weight = sa['query_key_value']['weight']
+    
+    print(f"\n📊 query_key_value.weight 分析:")
+    print(f"- 形状: {weight.shape}")
+    print(f"- 数据类型: {weight.dtype}")
+    print(f"- 参数数量: {weight.numel():,}")
+    
+    # 基本统计
+    flat = weight.flatten()
+    print(f"\n📈 统计信息:")
+    print(f"- 最小值: {flat.min():.8f}")
+    print(f"- 最大值: {flat.max():.8f}")
+    print(f"- 均值: {flat.mean():.8f}")
+    print(f"- 标准差: {flat.std():.8f}")
+    
+    # 稀疏性
+    near_zero = (flat.abs() < 1e-6).sum()
+    total = len(flat)
+    sparsity = float(near_zero) / total
+    print(f"- 稀疏率: {sparsity:.4f} ({sparsity*100:.2f}%)")
+    print(f"- 接近零的参数: {near_zero:,} / {total:,}")
+    
+    # 权重分布
+    small = (flat.abs() < 0.001).sum()
+    medium = ((flat.abs() >= 0.001) & (flat.abs() < 0.01)).sum()
+    large = (flat.abs() >= 0.01).sum()
+    
+    print(f"\n📊 权重分布:")
+    print(f"- |w| < 0.001:     {small:,} ({float(small)/total*100:.1f}%)")
+    print(f"- 0.001 ≤ |w| < 0.01: {medium:,} ({float(medium)/total*100:.1f}%)")
+    print(f"- |w| ≥ 0.01:      {large:,} ({float(large)/total*100:.1f}%)")
+    
+    # 前20个权重样本
+    print(f"\n🎯 前20个权重值:")
+    for i in range(min(20, len(flat))):
+        print(f"  [{i:2d}] {flat[i]:.8f}")
+    
+    print(f"\n✅ 分析完成!")
+else:
+    print("❌ 未找到query_key_value.weight")
+    if 'query_key_value' in sa:
+        print(f"query_key_value类型: {type(sa['query_key_value'])}")
+        if isinstance(sa['query_key_value'], dict):
+            print(f"query_key_value键: {list(sa['query_key_value'].keys())}")
