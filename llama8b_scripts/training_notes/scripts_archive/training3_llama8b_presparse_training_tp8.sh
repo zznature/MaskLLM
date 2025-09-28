@@ -3,7 +3,7 @@
 # Llama8b 预稀疏模型训练脚本
 # 基于oneshot剪枝产生的稀疏模型进行后续训练
 # 使用MaskLLM框架进行稀疏化训练
-
+export WANDB_MODE=offline
 export MASTER_ADDR="127.0.0.1"
 export MASTER_PORT="45532" # 避免与剪枝脚本端口冲突
 NNODES=1
@@ -90,17 +90,17 @@ TRAIN_ITERS=2000
 SAVE_INTERVAL=50 # 更频繁保存以防数值问题
 EVAL_INTERVAL=50 # 更频繁评估以监控稳定性
 LOG_INTERVAL=1 # 更频繁日志以及时发现问题
-WARMUP_ITERS=400 # 增加warmup以稳定初期训练
+WARMUP_ITERS=0 # 增加warmup以稳定初期训练
 
 # 创建日志目录
 LOG_DIR="$PROJECT_DIR/output/logs/llama8b_presparse_training"
 mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/training_${DATETIME}.log"
+LOG_FILE="$LOG_DIR/training3_${DATETIME}.log"
 
 echo "📝 日志文件: $LOG_FILE"
 
 # 🔧 采用与验证的llama2脚本相同的参数配置
-TASK_CMD="--gumbel-scale-range 5e1 2.5e2 --gumbel-temperature-range 4 0.05 --N 2 --M 4 --mask-only --prior-strength 9.0 --lr-mult 10 --weight-reg 2e-6"
+TASK_CMD="--gumbel-scale-range 2e1 1e2 --gumbel-temperature-range 3 0.1 --N 2 --M 4 --mask-only --prior-strength 3.0 --lr-mult 5 --weight-reg 1e-6"
 
 options=" \
     --untie-embeddings-and-output-weights \
