@@ -1,5 +1,13 @@
 # Llama8b-MaskLLM 模型结构分析与转换
 
+模型保存格式为huggingface格式，直接用 transformers 库加载进行推理。
+模型文件路径: `output/checkpoints/llama8b_hf_maskllm_c4`
+推理脚本: `llama8b_scripts/llama8b_inference/llama8b_hf_inference_simple.py`
+tokenizer 文件路径: `assets/checkpoints/Llama8b/llama8b/tokenizer.py`
+vocab.txt 文件路径: `assets/checkpoints/Llama8b/vocab.txt`
+
+prompt 格式为："<用户> 山东最高的山是什么山？<AI>"
+
 ## 模型概述
 
 - **模型名称**: Llama8b (9g-8b model)

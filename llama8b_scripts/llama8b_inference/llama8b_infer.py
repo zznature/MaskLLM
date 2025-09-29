@@ -1,17 +1,76 @@
 #!/usr/bin/env python3
 
-import argparse
-import os
+# Mixed environment: container PyTorch + external transformers
 import sys
+import os
+
+# Disable heavy dependencies that cause conflicts BEFORE any imports
+# Based on run_maskllm_native.sh successful configuration
+os.environ['TRANSFORMERS_NO_ACCELERATE'] = '1'
+os.environ['TRANSFORMERS_OFFLINE'] = '1'
+os.environ['HF_DATASETS_OFFLINE'] = '1'
+os.environ['DISABLE_MLFLOW_INTEGRATION'] = 'TRUE'
+
+# Additional environment variables from run_maskllm_native.sh
+os.environ['TORCH_UCC_DISABLE'] = '1'
+os.environ['UCC_DISABLE'] = '1'
+os.environ['NCCL_UCX_DISABLE'] = '1'
+os.environ['UCX_DISABLE'] = '1'
+os.environ['TORCH_DISTRIBUTED_BACKEND'] = 'gloo'
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'backend:native'
+
+# Resolve paths
+PROJECT_ROOT = '/data/home/zdhs0054/zzhou/MaskLLM'
+EXT_PKGS_DIR = os.path.join(PROJECT_ROOT, '.ext_pkgs')
+CONTAINER_TORCH_PATH = '/usr/local/lib/python3.10/dist-packages'
+
+# 1) Ensure container PyTorch loads first to lock ABI
+if CONTAINER_TORCH_PATH not in sys.path:
+    sys.path.insert(0, CONTAINER_TORCH_PATH)
 import torch
+print(f"[Info] PyTorch loaded from: {torch.__file__}")
+
+# 2) Preload newer typing_extensions from .ext_pkgs (for pydantic/transformers)
+if os.path.isdir(EXT_PKGS_DIR):
+    sys.path.insert(0, EXT_PKGS_DIR)
+    import typing_extensions
+    print(f"[Info] typing_extensions loaded from: {typing_extensions.__file__}")
+    # keep .ext_pkgs available but not shadow container path precedence
+    sys.path.remove(EXT_PKGS_DIR)
+    sys.path.append(EXT_PKGS_DIR)
+
+# Provide a safe shim for accelerate.utils.transformer_engine to avoid native imports
+import types
+te_shim = types.ModuleType("accelerate.utils.transformer_engine")
+
+def _convert_model_identity(model, *args, **kwargs):
+    return model
+
+def _is_fp8_available_false():
+    return False
+
+def _has_transformer_engine_layers_false(*args, **kwargs):
+    return False
+
+te_shim.convert_model = _convert_model_identity
+te_shim.is_fp8_available = _is_fp8_available_false
+te_shim.has_transformer_engine_layers = _has_transformer_engine_layers_false
+te_shim.__all__ = [
+    "convert_model",
+    "is_fp8_available",
+    "has_transformer_engine_layers",
+]
+sys.modules["accelerate.utils.transformer_engine"] = te_shim
+print("[Info] Installed shim for accelerate.utils.transformer_engine")
+
+import argparse
 import importlib
 import json
 from typing import Optional, List
 
 # Project directories
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_DIR = os.path.abspath(os.path.join(THIS_DIR, '..'))
-EXT_PKGS_DIR = os.path.join(PROJECT_DIR, '.ext_pkgs')
+PROJECT_DIR = os.path.abspath(os.path.join(THIS_DIR, '..', '..', '..'))  # Adjusted to point to repo root
 
 # Globals for HF classes, set by ensure_hf_import()
 AutoTokenizer = None
@@ -19,21 +78,20 @@ AutoModelForCausalLM = None
 
 
 def ensure_hf_import() -> None:
-    """Import transformers classes, falling back to project .ext_pkgs if missing.
-    Keeps container-native packages preferred; only adds .ext_pkgs if import fails.
+    """Import transformers classes from .ext_pkgs with conflict prevention.
     """
     global AutoTokenizer, AutoModelForCausalLM
     if AutoTokenizer is not None and AutoModelForCausalLM is not None:
         return
+    
     try:
-        tm = importlib.import_module('transformers')
-    except ImportError:
-        if os.path.isdir(EXT_PKGS_DIR) and EXT_PKGS_DIR not in sys.path:
-            sys.path.insert(0, EXT_PKGS_DIR)
-        tm = importlib.import_module('transformers')
-        print(f"[Info] transformers loaded from .ext_pkgs: {tm.__file__}")
-    AutoTokenizer = getattr(tm, 'AutoTokenizer')
-    AutoModelForCausalLM = getattr(tm, 'AutoModelForCausalLM')
+        import transformers as tm
+        print(f"[Info] transformers loaded from: {tm.__file__}")
+        AutoTokenizer = getattr(tm, 'AutoTokenizer')
+        AutoModelForCausalLM = getattr(tm, 'AutoModelForCausalLM')
+    except ImportError as e:
+        print(f"[Error] Failed to import transformers: {e}")
+        raise
 
 
 def parse_args():
@@ -131,7 +189,8 @@ def load_tokenizer(tokenizer_id: str, trust_remote_code: bool, explicit_vocab: O
             with open(tok_cfg_path, "r", encoding="utf-8") as f:
                 tok_cfg = json.load(f)
             if tok_cfg.get("tokenizer_class") in {"Llama8bTokenizer", "llama8b.tokenizer.Llama8bTokenizer"}:
-                return AutoTokenizer.from_pretrained(tokenizer_id, use_fast=False, trust_remote_code=True)
+                # Force local files only to prevent hub lookups for local models
+                return AutoTokenizer.from_pretrained(tokenizer_id, use_fast=False, trust_remote_code=True, local_files_only=True)
         except Exception:
             pass
 
@@ -147,15 +206,22 @@ def load_tokenizer(tokenizer_id: str, trust_remote_code: bool, explicit_vocab: O
         else:
             print("[Warn] Local tokenizer module found but no vocab.txt; pass --vocab to specify explicitly.")
 
-    return AutoTokenizer.from_pretrained(tokenizer_id, use_fast=True, trust_remote_code=trust_remote_code)
+    # Fallback to from_pretrained, ensuring it only uses local files.
+    # Custom tokenizers often require use_fast=False.
+    return AutoTokenizer.from_pretrained(tokenizer_id, use_fast=False, trust_remote_code=trust_remote_code, local_files_only=True)
 
 
 def main():
     args = parse_args()
     torch.manual_seed(args.seed)
 
-    model_id = args.model
-    tokenizer_id = args.tokenizer or model_id
+    # Resolve paths to be absolute to avoid ambiguity with HF hub ids
+    model_id = os.path.abspath(args.model)
+    tokenizer_id = os.path.abspath(args.tokenizer or model_id)
+
+    # Note: Both model config and tokenizer files are in the same directory
+    # The model weights (pytorch_model.bin) are in the llama8b subdirectory
+    # but config.json is in the parent directory with tokenizer files
 
     # Ensure HF classes available (container-native preferred, fallback to .ext_pkgs)
     ensure_hf_import()
@@ -181,6 +247,7 @@ def main():
         torch_dtype=torch_dtype,
         trust_remote_code=args.trust_remote_code,
         low_cpu_mem_usage=False,
+        local_files_only=True,
     )
 
     if device == "cuda":

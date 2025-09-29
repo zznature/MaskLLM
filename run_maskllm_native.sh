@@ -1,565 +1,99 @@
 #!/bin/bash
 
-# MaskLLM 原生环境运行脚本
-# 支持训练和评测功能
-# 使用容器内的原生环境运行 MaskLLM，混合方案保留必要库路径
-#
-# ✅ 集成HPC-X UCX/UCC冲突解决方案 (2024-08-31)
-# - 自动检测并加载兼容的UCX v1.12 + UCC v1.2.0库
-# - 解决 ImportError: undefined symbol: ucs_mpool_params_reset 问题
-# - 在所有LD_LIBRARY_PATH配置中优先使用兼容库
+# Minimal MaskLLM native launcher
+# - keeps core environment alignment with container defaults
+# - skips heavy environment validation to accelerate workflow
 
-echo "=== MaskLLM 原生环境运行脚本 (混合库路径) ==="
-echo "使用容器内原生环境:"
-echo "  - Python: python3"
-echo "  - PyTorch: 2.2.0a0+81ea7a4"
-echo "  - transformer_engine: 1.2"
-echo "  - torchrun: /usr/local/bin/torchrun"
-echo "  - 混合库路径: 容器内 + 外部必要库"
-echo ""
+set -euo pipefail
 
-# 设置 HuggingFace 镜像环境变量
-echo "=== 设置 HuggingFace 镜像环境变量 ==="
-export HF_ENDPOINT=https://hf-mirror.com
-export HF_HUB_ENABLE_HF_TRANSFER=1
-export HF_HUB_DOWNLOAD_TIMEOUT=300
-echo "HF_ENDPOINT=$HF_ENDPOINT"
-echo "HF_HUB_ENABLE_HF_TRANSFER=$HF_HUB_ENABLE_HF_TRANSFER"
-echo "HF_HUB_DOWNLOAD_TIMEOUT=$HF_HUB_DOWNLOAD_TIMEOUT"
-echo ""
-
-# 设置 PyTorch Dynamo 编译器禁用选项
-echo "=== 设置 PyTorch Dynamo 编译器选项 ==="
-export TORCHDYNAMO_DISABLE=1
-export TORCHDYNAMO_VERBOSE=1
-echo "TORCHDYNAMO_DISABLE=$TORCHDYNAMO_DISABLE"
-echo "TORCHDYNAMO_VERBOSE=$TORCHDYNAMO_VERBOSE"
-echo ""
-
-# 检查参数
 if [ $# -lt 1 ]; then
-    echo "用法: $0 <脚本路径> [参数...]"
-    echo ""
-    echo "训练脚本示例:"
-    echo "  $0 scripts/learnable_sparsity/llama2_7b_mask_only_tp4_c4.sh 0"
-    echo "  $0 scripts/oneshot/run_llama2_7b_prune_tp4.sh SparseGPT"
-    echo ""
-    echo "评测脚本示例:"
-    echo "  $0 scripts/ppl/evaluate_llama2_wikitext2.sh <checkpoint_path> 7b 4 sparse"
-    echo ""
-    echo "转换脚本示例:"
-    echo "  $0 scripts/tools/convert_llama8b_hf_to_megatron.sh"
-    echo "  $0 tools/checkpoint/util.py --model-type GPT --loader llama8b_hf [args...]"
-    echo ""
+    echo "Usage: $0 <script> [args...]"
     exit 1
 fi
 
 SCRIPT_PATH="$1"
 shift
 
-# 检查脚本类型
-if [[ "$SCRIPT_PATH" == *"evaluate"* ]] || [[ "$SCRIPT_PATH" == *"ppl"* ]]; then
-    echo "运行评测脚本: $SCRIPT_PATH"
-    echo "参数: $@"
-    SCRIPT_TYPE="evaluation"
-elif [[ "$SCRIPT_PATH" == *"convert"* ]] || [[ "$SCRIPT_PATH" == *"checkpoint"* ]]; then
-    echo "运行转换脚本: $SCRIPT_PATH"
-    echo "参数: $@"
-    SCRIPT_TYPE="conversion"
-elif [[ "$SCRIPT_PATH" == *"test"* ]] || [[ "$SCRIPT_PATH" == *"phase"* ]]; then
-    echo "运行测试脚本: $SCRIPT_PATH"
-    echo "参数: $@"
-    SCRIPT_TYPE="test"
-elif [[ "$SCRIPT_PATH" == *"prune"* ]]; then
-    if [ $# -lt 1 ]; then
-        echo "错误: 剪枝脚本需要指定剪枝方法"
-        echo "用法: $0 <剪枝脚本路径> <剪枝方法> [其他参数...]"
-        echo "示例: $0 scripts/oneshot/run_llama2_7b_prune_tp4.sh SparseGPT"
-        exit 1
-    fi
-    PRUNING_METHOD="$1"
-    shift
-    echo "运行剪枝脚本: $SCRIPT_PATH"
-    echo "剪枝方法: $PRUNING_METHOD"
-    echo "其他参数: $@"
-    SCRIPT_TYPE="pruning"
-else
-    echo "运行训练脚本: $SCRIPT_PATH"
-    echo "参数: $@"
-    SCRIPT_TYPE="training"
-fi
+PROJECT_ROOT="$(pwd)"
 
-echo ""
+echo "=== MaskLLM native (simple) ==="
+echo "Project root: ${PROJECT_ROOT}"
+echo "Target script: ${SCRIPT_PATH}"
 
-# 保存 conda 环境路径（用于备用库路径）
-BACKUP_CONDA_PREFIX="/data/home/zdhs0054/jpu/software/miniconda3/envs/maskllm"
+# HuggingFace mirrors / timeout
+export HF_ENDPOINT="https://hf-mirror.com"
+export HF_HUB_ENABLE_HF_TRANSFER=1
+export HF_HUB_DOWNLOAD_TIMEOUT=300
 
-# HPC-X库冲突深度修复
-echo "=== HPC-X库冲突深度检测和修复 ==="
+# PyTorch dynamo controls
+export TORCHDYNAMO_DISABLE=1
+export TORCHDYNAMO_VERBOSE=1
 
-# 检测HPC-X冲突
-HPCX_CONFLICT_PATHS=(
-    "/opt/hpcx/ucc/lib"
-    "/opt/hpcx/ucx/lib"
-    "/opt/hpcx/ompi/lib"
-    "/opt/hpcx/hcoll/lib"
-)
+# UCX / UCC / NCCL compatibility toggles (mirrors full launcher defaults)
+export OMPI_MCA_pml="^ucx,^hcoll,^ucc"
+export OMPI_MCA_btl="^openib,^uct,^ucx"
+export OMPI_MCA_coll="^hcoll,^ucx,^ucc"
+export OMPI_MCA_osc="^ucx,^ucc"
+export OMPI_MCA_spml="^ucx,^ucc"
+export UCX_TLS="^ud,^dc,^rc,^tcp,^shm"
+export UCC_TLS="^ucp,^sharp,^tcp,^shm,^cuda"
+export UCC_CLS="^sharp,^basic"
+export UCX_LOG_LEVEL=error
+export UCC_LOG_LEVEL=error
+export NCCL_UCX_DISABLE=1
+export TORCH_UCC_DISABLE=1
+export UCC_DISABLE=1
+export UCX_DISABLE=1
+export TORCH_DISTRIBUTED_BACKEND=gloo
+export NCCL_SOCKET_IFNAME=lo
+export NCCL_IB_DISABLE=1
+export NCCL_P2P_DISABLE=1
+export NCCL_SHM_DISABLE=0
+export NCCL_TREE_THRESHOLD=0
+export NCCL_ALGO=ring
+export PYTORCH_CUDA_ALLOC_CONF=backend:native
 
-HAS_HPCX_CONFLICT=false
-for path in "${HPCX_CONFLICT_PATHS[@]}"; do
-    if [ -d "$path" ] && [ -f "$path/libucc.so.1" ]; then
-        echo "⚠️  检测到HPC-X冲突库: $path/libucc.so.1"
-        HAS_HPCX_CONFLICT=true
-    fi
-done
-
-if [ "$HAS_HPCX_CONFLICT" = true ]; then
-    echo "🔧 应用HPC-X深度冲突修复..."
-    
-    # 1. 清除HPC-X环境变量
-    unset HPCX_DIR HPCX_HOME HPCX_ROOT HPCX_MPI_DIR HPCX_UCX_DIR HPCX_UCC_DIR HPCX_HCOLL_DIR
-    unset OMPI_HOME OMPI_ROOT MPI_HOME MPI_ROOT
-    
-    # 2. 强力禁用HPC-X组件（更彻底的UCC隔离）
-    export OMPI_MCA_pml=^ucx,^hcoll,^ucc
-    export OMPI_MCA_btl=^openib,^uct,^ucx
-    export OMPI_MCA_coll=^hcoll,^ucx,^ucc
-    export OMPI_MCA_osc=^ucx,^ucc
-    export OMPI_MCA_spml=^ucx,^ucc
-    export UCX_TLS=^ud,^dc,^rc,^tcp,^shm
-    export UCC_TLS=^ucp,^sharp,^tcp,^shm,^cuda
-    export UCC_CLS=^sharp,^basic
-    export UCX_LOG_LEVEL=error
-    export UCC_LOG_LEVEL=error
-    
-    # 3. 彻底禁用UCC相关功能（基于comprehensive_fix.sh验证成功的配置）
-    export NCCL_UCX_DISABLE=1
-    export TORCH_UCC_DISABLE=1
-    export UCC_DISABLE=1
-    export HCOLL_ENABLE_MCAST=0
-    
-    # 4. 强制通信后端配置（避免UCC）
-    export TORCH_DISTRIBUTED_BACKEND=gloo
-    export NCCL_SOCKET_IFNAME=lo
-    export NCCL_IB_DISABLE=1
-    export NCCL_P2P_DISABLE=1
-    export NCCL_SHM_DISABLE=0
-    export NCCL_TREE_THRESHOLD=0  # 强制使用ring算法避免UCC
-    export NCCL_ALGO=ring
-    
-    echo "✅ HPC-X深度冲突修复已应用"
-else
-    echo "✅ 未检测到HPC-X冲突"
-fi
-echo ""
-
-# 设置环境变量，使用混合方案
+# Base PATH / PYTHONPATH
 export PATH="/usr/local/bin:/usr/bin:/usr/sbin:/sbin:/usr/local/cuda/bin"
+export PYTHONPATH="/usr/local/lib/python3.10/dist-packages:/usr/local/lib/python3.10/site-packages:${PROJECT_ROOT}/.ext_pkgs:${PROJECT_ROOT}"
 
-# 设置当前工作目录（用于.ext_pkgs路径）
-CURRENT_DIR="$(pwd)"
-EXT_PKGS_DIR="${CURRENT_DIR}/.ext_pkgs"
-
-# 🎯 简化智能混合PYTHONPATH配置（基于comprehensive_fix.sh成功经验）
-echo "=== 简化智能混合PYTHONPATH配置 ==="
-
-# 检查.ext_pkgs目录存在性
-if [ -d "$EXT_PKGS_DIR" ]; then
-    echo "✅ 检测到.ext_pkgs目录"
-    echo "📦 将整个.ext_pkgs作为Python包路径添加"
-    
-    # 显示关键包状态
-    KEY_PACKAGES=("transformers" "tokenizers" "huggingface_hub" "torch" "numpy")
-    for package in "${KEY_PACKAGES[@]}"; do
-        if [ -d "$EXT_PKGS_DIR/$package" ]; then
-            if [[ "$package" == "torch" || "$package" == "numpy" ]]; then
-                echo "  🔴 发现$package (将被容器内版本覆盖)"
-            else
-                echo "  ✅ 发现$package (可安全使用)"
-            fi
-        fi
-    done
-else
-    echo "⚠️ .ext_pkgs目录不存在"
-fi
-
-# 🎯 使用验证成功的简化PYTHONPATH设置方法
-# 基于comprehensive_fix.sh的成功经验，使用直接字符串拼接
-export PYTHONPATH="/usr/local/lib/python3.10/dist-packages:/usr/local/lib/python3.10/site-packages:${CURRENT_DIR}/.ext_pkgs:${CURRENT_DIR}"
-
-echo "✅ 简化PYTHONPATH配置完成:"
-echo "  📦 .ext_pkgs路径: ${CURRENT_DIR}/.ext_pkgs"
-echo "  🐳 容器内优先: /usr/local/lib/python3.10/dist-packages"
-echo ""
-
-# 🎉 集成验证成功的NGC容器库修复方案
-echo "=== NGC容器库依赖优化配置 ==="
-
-# 检测NGC容器库结构
-CONDA_LIBS_DIR="/opt/conda_libs"
-if [ -d "$CONDA_LIBS_DIR" ]; then
-    echo "✅ 检测到NGC容器库结构: $CONDA_LIBS_DIR"
-    
-    # 确认关键库文件
-    CUDNN_LIB="$CONDA_LIBS_DIR/libcudnn.so.8.9.7"
-    CUPTI_DIRS=(
-        "$CONDA_LIBS_DIR/python3.10/site-packages/nvidia/cuda_cupti/lib"
-        "$CONDA_LIBS_DIR/python3.10/site-packages/triton/backends/nvidia/lib/cupti"
-    )
-    NCCL_DIR="$CONDA_LIBS_DIR/python3.10/site-packages/nvidia/nccl/lib"
-    
-    # 找到cuPTI目录
-    CUPTI_DIR=""
-    for dir in "${CUPTI_DIRS[@]}"; do
-        if [ -f "$dir/libcupti.so.12" ]; then
-            CUPTI_DIR="$dir"
-            echo "✅ cuPTI: $dir/libcupti.so.12"
-            break
-        fi
-    done
-    
-    if [ -f "$CUDNN_LIB" ] && [ -n "$CUPTI_DIR" ] && [ -f "$NCCL_DIR/libnccl.so.2" ]; then
-        echo "✅ 所有关键库文件确认存在"
-        
-        # 构建优化的LD_LIBRARY_PATH - 基于验证成功的方案
-        echo "🔧 构建优化LD_LIBRARY_PATH..."
-        
-        # 清除可能的HPC-X路径
-        clean_ld_library_path() {
-            local path="$1"
-            echo "$path" | tr ':' '\n' | grep -v -E "(hpcx|ucx|ucc)" | tr '\n' ':' | sed 's/:$//'
-        }
-        
-        # 获取清理后的原始路径
-        CLEAN_ORIGINAL_PATH=""
-        if [ -n "$LD_LIBRARY_PATH" ]; then
-            CLEAN_ORIGINAL_PATH=$(clean_ld_library_path "$LD_LIBRARY_PATH")
-        fi
-        
-        # 最高优先级：验证成功的库目录顺序
-        PRIORITY_PATHS=(
-            "$CONDA_LIBS_DIR"                    # cuDNN主目录
-            "$CUPTI_DIR"                         # cuPTI目录
-            "$NCCL_DIR"                          # NCCL目录
-            "/usr/local/cuda/lib64"              # CUDA标准库
-            "/usr/local/lib/python3.10/dist-packages/torch/lib"  # PyTorch库
-            "/usr/local/cuda/compat/lib"         # CUDA兼容库
-            "/usr/local/nvidia/lib"              # NVIDIA库
-            "/usr/local/nvidia/lib64"            # NVIDIA库64
-            "/usr/lib/x86_64-linux-gnu"          # 系统库
-        )
-        
-        NEW_LD_LIBRARY_PATH=""
-        for path in "${PRIORITY_PATHS[@]}"; do
-            if [ -d "$path" ]; then
-                if [ -z "$NEW_LD_LIBRARY_PATH" ]; then
-                    NEW_LD_LIBRARY_PATH="$path"
-                else
-                    NEW_LD_LIBRARY_PATH="$NEW_LD_LIBRARY_PATH:$path"
-                fi
-                echo "  ✅ 优先路径: $path"
-            fi
-        done
-        
-        # 添加清理后的原始路径
-        if [ -n "$CLEAN_ORIGINAL_PATH" ]; then
-            NEW_LD_LIBRARY_PATH="$NEW_LD_LIBRARY_PATH:$CLEAN_ORIGINAL_PATH"
-        fi
-        
-        # HPC-X冲突深度清理（增强版）
-        if [ "$HAS_HPCX_CONFLICT" = true ]; then
-            echo "🧹 应用HPC-X路径深度清理（增强版）..."
-            
-            # 更彻底的HPC-X库路径清理
-            HPCX_PATH_PATTERNS=(
-                "/opt/hpcx"
-                "/usr/local/hpcx" 
-                "/opt/mellanox"
-                "/usr/lib64/openmpi"
-                "/usr/lib/openmpi"
-                "/opt/hpcx/ucc/lib"
-                "/opt/hpcx/ucx/lib"
-                "/opt/hpcx/ompi/lib"
-                "hpcx"
-                "ucx"
-                "ucc"
-                "hcoll"
-                "sharp"
-            )
-            
-            # 强制从系统PATH中移除HPC-X路径
-            NEW_PATH=""
-            IFS=':' read -ra PATH_PARTS <<< "$PATH"
-            for path_part in "${PATH_PARTS[@]}"; do
-                INCLUDE_PATH=true
-                for pattern in "${HPCX_PATH_PATTERNS[@]}"; do
-                    if [[ "$path_part" == *"$pattern"* ]]; then
-                        echo "  🗑️  从PATH移除HPC-X路径: $path_part"
-                        INCLUDE_PATH=false
-                        break
-                    fi
-                done
-                if [ "$INCLUDE_PATH" = true ] && [ -n "$path_part" ]; then
-                    if [ -z "$NEW_PATH" ]; then
-                        NEW_PATH="$path_part"
-                    else
-                        NEW_PATH="$NEW_PATH:$path_part"
-                    fi
-                fi
-            done
-            export PATH="$NEW_PATH"
-            
-            FINAL_LD_LIBRARY_PATH=""
-            IFS=':' read -ra ADDR <<< "$NEW_LD_LIBRARY_PATH"
-            for path in "${ADDR[@]}"; do
-                INCLUDE_PATH=true
-                for pattern in "${HPCX_PATH_PATTERNS[@]}"; do
-                    if [[ "$path" == *"$pattern"* ]]; then
-                        echo "  🗑️  排除HPC-X路径: $path"
-                        INCLUDE_PATH=false
-                        break
-                    fi
-                done
-                
-                if [ "$INCLUDE_PATH" = true ] && [ -n "$path" ]; then
-                    if [ -z "$FINAL_LD_LIBRARY_PATH" ]; then
-                        FINAL_LD_LIBRARY_PATH="$path"
-                    else
-                        FINAL_LD_LIBRARY_PATH="$FINAL_LD_LIBRARY_PATH:$path"
-                    fi
-                fi
-            done
-            NEW_LD_LIBRARY_PATH="$FINAL_LD_LIBRARY_PATH"
-        fi
-        
-        # 🎯 集成UCX/UCC冲突解决方案（基于策略3成功验证）
-        UCX_UCC_INSTALL_DIR="/data/home/zdhs0054/zzhou/MaskLLM/ucx_ucc_install_optimized"
-        if [ -d "$UCX_UCC_INSTALL_DIR/lib" ] && [ -f "$UCX_UCC_INSTALL_DIR/lib/libucs.so" ]; then
-            echo "🎯 检测到UCX/UCC解决方案，应用兼容库..."
-            # 将兼容的UCX/UCC库路径添加到最高优先级
-            NEW_LD_LIBRARY_PATH="$UCX_UCC_INSTALL_DIR/lib:$NEW_LD_LIBRARY_PATH"
-            
-            # 设置UCX/UCC环境变量
-            export UCX_DIR="$UCX_UCC_INSTALL_DIR"
-            export UCC_DIR="$UCX_UCC_INSTALL_DIR"
-            
-            echo "  ✅ UCX/UCC兼容库: $UCX_UCC_INSTALL_DIR/lib (最高优先级)"
-            echo "  ✅ UCX_DIR: $UCX_DIR"
-            echo "  ✅ UCC_DIR: $UCC_DIR"
-        else
-            echo "  ⚠️  UCX/UCC兼容库未找到，使用默认配置"
-        fi
-        
-        # 清理重复路径并设置
-        export LD_LIBRARY_PATH=$(echo "$NEW_LD_LIBRARY_PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's/:$//')
-        echo "✅ NGC容器优化LD_LIBRARY_PATH已设置（含UCX/UCC解决方案）"
-        
-        # 再次强化UCC冲突预防（在LD_LIBRARY_PATH设置后）
-        if [ "$HAS_HPCX_CONFLICT" = true ]; then
-            echo "🛡️ 再次强化UCC冲突预防..."
-            export LD_PRELOAD=""  # 清空可能的预加载库
-            
-            # 强制禁用可能的UCC库加载
-            export TORCH_UCC_DISABLE=1
-            export UCC_DISABLE=1
-            export NCCL_UCX_DISABLE=1
-            export UCX_DISABLE=1
-            
-            # 强制PyTorch使用GLOO后端
-            export TORCH_DISTRIBUTED_BACKEND=gloo
-            export PYTORCH_CUDA_ALLOC_CONF=backend:native
-            
-            echo "✅ UCC冲突预防强化完成"
-        fi
-        
-    else
-        echo "❌ 关键库文件缺失，使用备用方案"
-        # 备用方案：使用原始设置
-        BASE_LD_LIBRARY_PATH="/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/cuda/lib64:/usr/local/cuda/compat/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64"
-        
-        # 🎯 备用方案也集成UCX/UCC解决方案
-        UCX_UCC_INSTALL_DIR="/data/home/zdhs0054/zzhou/MaskLLM/ucx_ucc_install_optimized"
-        if [ -d "$UCX_UCC_INSTALL_DIR/lib" ] && [ -f "$UCX_UCC_INSTALL_DIR/lib/libucs.so" ]; then
-            echo "🎯 备用方案中应用UCX/UCC解决方案..."
-            BASE_LD_LIBRARY_PATH="$UCX_UCC_INSTALL_DIR/lib:$BASE_LD_LIBRARY_PATH"
-            
-            # 设置UCX/UCC环境变量
-            export UCX_DIR="$UCX_UCC_INSTALL_DIR"
-            export UCC_DIR="$UCX_UCC_INSTALL_DIR"
-            
-            echo "  ✅ 备用方案UCX/UCC兼容库已集成"
-        fi
-        
-        export LD_LIBRARY_PATH="$BASE_LD_LIBRARY_PATH"
+# Construct LD_LIBRARY_PATH from known directories (include if present)
+declare -a LD_PATHS
+add_ld_path() {
+    local dir="$1"
+    if [ -d "$dir" ]; then
+        LD_PATHS+=("$dir")
     fi
-else
-    echo "❌ 未检测到NGC容器库结构，使用标准配置"
-    # 标准配置
-    BASE_LD_LIBRARY_PATH="/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/cuda/lib64:/usr/local/cuda/compat/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64"
-    
-    # 🎯 标准配置也集成UCX/UCC解决方案
-    UCX_UCC_INSTALL_DIR="/data/home/zdhs0054/zzhou/MaskLLM/ucx_ucc_install_optimized"
-    if [ -d "$UCX_UCC_INSTALL_DIR/lib" ] && [ -f "$UCX_UCC_INSTALL_DIR/lib/libucs.so" ]; then
-        echo "🎯 标准配置中应用UCX/UCC解决方案..."
-        BASE_LD_LIBRARY_PATH="$UCX_UCC_INSTALL_DIR/lib:$BASE_LD_LIBRARY_PATH"
-        
-        # 设置UCX/UCC环境变量
-        export UCX_DIR="$UCX_UCC_INSTALL_DIR"
-        export UCC_DIR="$UCX_UCC_INSTALL_DIR"
-        
-        echo "  ✅ 标准配置UCX/UCC兼容库已集成"
-    fi
-    
-    export LD_LIBRARY_PATH="$BASE_LD_LIBRARY_PATH"
+}
+
+add_ld_path "${PROJECT_ROOT}/ucx_ucc_install_optimized/lib"
+add_ld_path "/opt/conda_libs"
+add_ld_path "/opt/conda_libs/python3.10/site-packages/nvidia/cuda_cupti/lib"
+add_ld_path "/opt/conda_libs/python3.10/site-packages/nvidia/nccl/lib"
+add_ld_path "/usr/local/cuda/lib64"
+add_ld_path "/usr/local/lib/python3.10/dist-packages/torch/lib"
+add_ld_path "/usr/local/cuda/compat/lib"
+add_ld_path "/usr/local/nvidia/lib"
+add_ld_path "/usr/local/nvidia/lib64"
+add_ld_path "/usr/lib/x86_64-linux-gnu"
+
+if [ ${#LD_PATHS[@]} -gt 0 ]; then
+    export LD_LIBRARY_PATH="$(IFS=:; echo "${LD_PATHS[*]}")"
 fi
 
 export CUDA_HOME="/usr/local/cuda"
 export CUDA_ROOT="/usr/local/cuda"
 
-# 清空 conda 环境变量，避免冲突（保留备用路径）
-unset CONDA_DEFAULT_ENV
-unset CONDA_PREFIX
-unset CONDA_PYTHON_EXE
-unset CONDA_EXE
-unset CONDA_PROMPT_MODIFIER
-unset CONDA_SHLVL
-unset CONDA_ENVS_PATH
-unset CONDA_PKGS_DIRS
-echo "✅ conda环境变量已清理（使用容器内原生环境）"
+# Clean conda markers to avoid interference
+unset CONDA_DEFAULT_ENV CONDA_PREFIX CONDA_PYTHON_EXE CONDA_EXE \
+      CONDA_PROMPT_MODIFIER CONDA_SHLVL CONDA_ENVS_PATH CONDA_PKGS_DIRS
 
-echo "环境变量设置完成:"
-echo "  PATH: $PATH"
-echo "  PYTHONPATH (前3个路径): $(echo $PYTHONPATH | cut -d: -f1-3)..."
-echo "  LD_LIBRARY_PATH (前3个路径): $(echo $LD_LIBRARY_PATH | cut -d: -f1-3)..."
-echo ""
+echo "Environment ready. PATH=${PATH}"
 
-# 🎉 库文件已通过LD_LIBRARY_PATH直接访问，无需符号链接
-echo "=== 库文件访问验证 ==="
-echo "✅ 使用LD_LIBRARY_PATH直接访问，避免权限问题"
-echo "✅ 库文件路径已优化配置"
-echo ""
-
-# 验证环境
-echo "验证环境..."
-python3 --version
-which python3
-echo ""
-
-echo "验证核心包..."
-python3 -c "
-import torch
-print('PyTorch 版本:', torch.__version__)
-print('PyTorch 路径:', torch.__file__)
-print('CUDA 可用:', torch.cuda.is_available())
-if torch.cuda.is_available():
-    try:
-        device_count = torch.cuda.device_count()
-        print('CUDA 设备数:', device_count)
-        if device_count > 0:
-            print('当前设备:', torch.cuda.current_device())
-            print('设备名称:', torch.cuda.get_device_name())
-    except Exception as e:
-        print('设备信息获取异常:', str(e))
-
-# 测试基本功能
-try:
-    x = torch.randn(3, 3)
-    y = torch.mm(x, x)
-    print('✅ CPU张量运算正常')
-except Exception as e:
-    print('❌ CPU张量运算异常:', str(e))
-"
-
-echo ""
-echo "验证 transformer_engine..."
-python3 -c "
-import sys
-try:
-    import transformer_engine as te
-    print('transformer_engine 版本:', getattr(te, '__version__', 'unknown'))
-    print('transformer_engine 路径:', te.__file__)
-    print('transformer_engine.pytorch 可用:', hasattr(te, 'pytorch'))
-    if hasattr(te, 'pytorch'):
-        print('transformer_engine.pytorch.Linear 可用:', hasattr(te.pytorch, 'Linear'))
-except ImportError as e:
-    print('transformer_engine 导入失败:', e)
-    print('当前PYTHONPATH前5个路径:')
-    for i, path in enumerate(sys.path[:5]):
-        print(f'  {i}: {path}')
-"
-
-echo ""
-echo "验证 transformers (智能混合)..."
-python3 -c "
-import sys
-try:
-    import transformers
-    print('✅ transformers 版本:', transformers.__version__)
-    print('✅ transformers 路径:', transformers.__file__)
-    # 验证是否从.ext_pkgs加载
-    if '.ext_pkgs' in transformers.__file__:
-        print('📦 来源: .ext_pkgs (外部包)')
-    else:
-        print('🐳 来源: 容器内原生')
-    
-    # 测试基本功能
-    from transformers import AutoTokenizer
-    print('✅ AutoTokenizer 导入成功')
-except ImportError as e:
-    print('❌ transformers 导入失败:', e)
-    print('当前PYTHONPATH前3个路径:')
-    for i, path in enumerate(sys.path[:3]):
-        print(f'  {i}: {path}')
-"
-
-echo ""
-echo "验证 torchrun..."
-/usr/local/bin/torchrun --version
-
-# 验证 CUDA 工具链
-echo ""
-echo "验证 CUDA 工具链..."
-which nvcc
-nvcc --version
-echo "CUDA_HOME: $CUDA_HOME"
-echo "CUDA_ROOT: $CUDA_ROOT"
-echo ""
-
-echo "开始运行脚本..."
-echo ""
-
-# 运行脚本
-if [ "$SCRIPT_TYPE" = "pruning" ]; then
-    # 剪枝脚本：传递剪枝方法和其他参数
-    bash "$SCRIPT_PATH" "$PRUNING_METHOD" "$@"
-elif [ "$SCRIPT_TYPE" = "evaluation" ]; then
-    # 评测脚本：直接传递所有参数
-    bash "$SCRIPT_PATH" "$@"
-elif [ "$SCRIPT_TYPE" = "conversion" ]; then
-    # 转换脚本：可能是bash脚本或python脚本
-    if [[ "$SCRIPT_PATH" == *.py ]]; then
-        # Python脚本：使用python3运行
-        python3 "$SCRIPT_PATH" "$@"
-    else
-        # Bash脚本：直接运行
-        bash "$SCRIPT_PATH" "$@"
-    fi
-elif [ "$SCRIPT_TYPE" = "test" ]; then
-    # 测试脚本：根据扩展名判断类型
-    if [[ "$SCRIPT_PATH" == *.py ]]; then
-        # Python测试脚本：使用python3运行
-        python3 "$SCRIPT_PATH" "$@"
-    else
-        # Bash测试脚本：直接运行
-        bash "$SCRIPT_PATH" "$@"
-    fi
+# Execute target script
+if [[ "$SCRIPT_PATH" == *.py ]]; then
+    python3 "$SCRIPT_PATH" "$@"
 else
-    # 训练脚本：根据扩展名判断类型
-    if [[ "$SCRIPT_PATH" == *.py ]]; then
-        # Python训练脚本：使用python3运行
-        python3 "$SCRIPT_PATH" "$@"
-    else
-        # Bash训练脚本：直接运行
-        bash "$SCRIPT_PATH" "$@"
-    fi
-fi 
+    bash "$SCRIPT_PATH" "$@"
+fi
+

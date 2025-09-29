@@ -9,6 +9,18 @@ LOAD=$1 # path to the model
 TP=$2   # tensor parallel size (1, 2, 4, 8)
 MODE=$3 # dense, sparse
 
+# Normalize load directory so Megatron can locate latest_checkpointed_iteration.txt
+if [ -f "$LOAD/latest_checkpointed_iteration.txt" ]; then
+    echo "🔍 Detected checkpoint metadata in $LOAD"
+elif [ -f "$(dirname "$LOAD")/latest_checkpointed_iteration.txt" ]; then
+    echo "🔄 latest_checkpointed_iteration.txt found in parent directory. Adjusting --load to parent."
+    LOAD="$(dirname "$LOAD")"
+else
+    echo "❌ latest_checkpointed_iteration.txt not found in $LOAD or its parent."
+    echo "   Please ensure the checkpoint directory structure is intact."
+    exit 1
+fi
+
 echo "🚀 Llama8b WIKITEXT2 Evaluation"
 echo "Model Path: $LOAD"
 echo "Tensor Parallel: $TP"
@@ -139,7 +151,7 @@ fi
 echo "Command: $TORCHRUN_CMD --nproc_per_node=$NPROC_PER_NODE --nnodes=$NNODES --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT tasks/main.py"
 echo ""
 
-$TORCHRUN_CMD --nproc_per_node=$NPROC_PER_NODE --nnodes=$NNODES --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT tasks/main.py ${OPTIONS} ${MASK_OPTIONS} --load "$MODEL_PATH"
+$TORCHRUN_CMD --nproc_per_node=$NPROC_PER_NODE --nnodes=$NNODES --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT tasks/main.py ${OPTIONS} ${MASK_OPTIONS}
 
 echo ""
 echo "✅ Llama8b WIKITEXT2 evaluation completed!"
