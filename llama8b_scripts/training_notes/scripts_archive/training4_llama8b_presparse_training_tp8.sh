@@ -30,8 +30,7 @@ PROJECT_DIR=$(pwd)
 DATETIME=`date +'date_%y-%m-%d_time_%H-%M-%S'`
 
 # 路径配置
-# 注意: 修复后的稀疏化脚本会添加 .update_weight 后缀
-PRESPARSE_CHECKPOINT="$PROJECT_DIR/output/oneshot_pruning/checkpoint/${SPARSE_NAME}.update_weight"
+PRESPARSE_CHECKPOINT="$PROJECT_DIR/output/oneshot_pruning/checkpoint/${SPARSE_NAME}"
 TRAINING_CHECKPOINT="$PROJECT_DIR/output/checkpoints/llama8b_maskllm_training_tp8"
 TOKENIZER_MODEL="$PROJECT_DIR/assets/checkpoints/Llama8b"
 # 🔧 采用与llama2验证脚本相同的数据配置格式
@@ -86,12 +85,12 @@ echo "  - 数据路径: $DATA_BLEND"
 echo "  - 稀疏率: ${SPARSITY} (50%)"
 echo "  - 稀疏模式: ${PATTERN} (2:4结构化)"
 
-# 训练参数 (参考验证的llama2脚本并针对llama8b调整)
+# 训练参数 (与验证的llama2脚本保持一致)
 TRAIN_ITERS=2000
-SAVE_INTERVAL=100  # 🔧 与llama2保持一致 (原100太频繁)
-EVAL_INTERVAL=50  
-LOG_INTERVAL=1    
-WARMUP_ITERS=0     # 🔧 与llama2保持一致 (从预稀疏checkpoint开始不需要warmup)
+SAVE_INTERVAL=50 # 更频繁保存以防数值问题
+EVAL_INTERVAL=50 # 更频繁评估以监控稳定性
+LOG_INTERVAL=1 # 更频繁日志以及时发现问题
+WARMUP_ITERS=400 # 增加warmup以稳定初期训练
 
 # 创建日志目录
 LOG_DIR="$PROJECT_DIR/output/logs/llama8b_presparse_training"
@@ -100,10 +99,8 @@ LOG_FILE="$LOG_DIR/training_${DATETIME}.log"
 
 echo "📝 日志文件: $LOG_FILE"
 
-# 🔧 MaskLLM稀疏训练参数 (参考llama2，但针对llama8b的更大规模适当调整)
-# llama2: --gumbel-scale-range 1e2 5e2 --weight-reg 1e-5
-# llama8b: 模型更大(8B vs 7B)，调整gumbel-scale起点和weight-reg
-TASK_CMD="--gumbel-scale-range 1e2 5e2 --gumbel-temperature-range 4 0.05 --N 2 --M 4 --mask-only --prior-strength 3.0 --lr-mult 10 --weight-reg 1e-5"
+# 🔧 采用与验证的llama2脚本相同的参数配置
+TASK_CMD="--gumbel-scale-range 5e1 2.5e2 --gumbel-temperature-range 4 0.05 --N 2 --M 4 --mask-only --prior-strength 9.0 --lr-mult 10 --weight-reg 2e-6"
 
 options=" \
     --untie-embeddings-and-output-weights \
@@ -128,8 +125,8 @@ options=" \
     --micro-batch-size 1 \
     --global-batch-size 256 \
     --train-iters $TRAIN_ITERS \
-    --lr 5e-5 \
-    --min-lr 5e-6 \
+    --lr 2e-5 \
+    --min-lr 2e-6 \
     --lr-decay-style cosine \
     --log-interval $LOG_INTERVAL \
     --eval-iters 10 \

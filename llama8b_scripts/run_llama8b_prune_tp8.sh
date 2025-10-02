@@ -23,6 +23,29 @@ if [ -z "$SPARSEMETHOD" ]; then
     echo "使用默认稀疏化方法: $SPARSEMETHOD"
 fi
 
+# Map user-friendly names to internal method names
+# SparseGPT is implemented as "hessian" method in the code
+INTERNAL_METHOD=""
+case "${SPARSEMETHOD}" in
+    SparseGPT|sparsegpt|SPARSEGPT)
+        INTERNAL_METHOD="hessian"
+        echo "✅ 稀疏化方法: SparseGPT (内部方法: hessian)"
+        ;;
+    Magnitude|magnitude|MAGNITUDE)
+        INTERNAL_METHOD="magnitude"
+        echo "✅ 稀疏化方法: Magnitude"
+        ;;
+    Wanda|wanda|WANDA)
+        INTERNAL_METHOD="wanda"
+        echo "✅ 稀疏化方法: Wanda"
+        ;;
+    *)
+        echo "❌ 错误: 未知的稀疏化方法 '$SPARSEMETHOD'"
+        echo "支持的方法: SparseGPT, Magnitude, Wanda"
+        exit 1
+        ;;
+esac
+
 export TASK='wikitext'
 export SPARSITY=0.5
 export PATTERN='nmprune'
@@ -123,8 +146,9 @@ options=" \
     --load ${CHECKPOINT_LOAD_DIR} \
     --hessian-compute \
     --sparse-pattern ${PATTERN} \
-    --sparse-method ${SPARSEMETHOD} \
+    --sparse-method ${INTERNAL_METHOD} \
     --sparsity ${SPARSITY} \
+    --update-weight \
     --row-b -1 \
     --col-b 128 \
     --prunen 2 \

@@ -89,7 +89,7 @@ bash run_maskllm_native.sh llama8b_scripts/llama8b_inference/evaluate_llama8b_wi
 脚本已针对Llama8b进行预配置：
 
 ```bash
-HIDDEN_SIZE=4096        # 隐藏层大小
+HIDDEN_SIZE=4096       # 隐藏层大小
 NUM_LAYERS=32          # 层数
 NUM_ATTN_HEADS=32      # 注意力头数
 FFN_HIDDEN_SIZE=14336  # FFN隐藏层大小
@@ -118,7 +118,17 @@ Mode: sparse
 
 🔥 Running torchrun with 1 processes...
 ...
- validation loss at iteration 1 | lm loss value: 2.234 | lm loss PPL: 9.34
+overalapping_eval 4096
+total_targets 308412
+total_sequences 76
+num_tokenized_tokens 308413
+ > number of original tokens: 308413, number of detokenized tokens: 308413
+len(data_loader): 76
+> working on iteration: 0
+WARNING:megatron.core.models.common.embeddings.rotary_pos_embedding:Setting apply_rope_fusion to false because its implementation is not included in Apex. Try upgrading to the latest version
+--------------------------------------------------------------------------------------------------------------------------
+ validation results on WIKITEXT2 | avg loss: 3.6882E+00 | ppl: 3.9974E+01 | adjusted ppl: 3.9974E+01 | token ratio: 1.0 |
+--------------------------------------------------------------------------------------------------------------------------
 ...
 ✅ Llama8b WIKITEXT2 evaluation completed!
 ```
@@ -126,7 +136,6 @@ Mode: sparse
 ### 关键指标
 - **lm loss value**: 语言模型损失值（越低越好）
 - **lm loss PPL**: Perplexity值（越低越好）
-- **处理速度**: tokens/sec
 
 ## 依赖要求
 
@@ -137,12 +146,6 @@ Mode: sparse
 4. **WIKITEXT2数据集**: 自动下载或使用缓存
 
 **注意**: 评测脚本会自动验证tokenizer Python模块和vocab文件是否存在。
-
-### 环境要求
-- Python 3.8+
-- PyTorch 2.0+
-- Transformers库
-- MaskLLM环境
 
 ## 故障排除
 

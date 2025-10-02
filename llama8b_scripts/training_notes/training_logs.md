@@ -84,3 +84,9 @@ validation loss at iteration 1900 | lm loss value: 3.175204E+00 | lm loss PPL: 2
 validation loss at iteration 1950 | lm loss value: 3.184855E+00 | lm loss PPL: 2.416377E+01 | reg loss value: 7.757159E+03 | reg loss PPL: 4.851652E+08 | 
 validation loss at iteration 2000 | lm loss value: 3.187674E+00 | lm loss PPL: 2.423201E+01 | reg loss value: 7.759353E+03 | reg loss PPL: 4.851652E+08 |
 ```
+
+## 5th training
+
+修正关键错误,稀疏模型重新生成,重新训练.
+log-file: `output/logs/llama8b_presparse_training/training_date_25-09-30_time_07-23-32.log`
+
