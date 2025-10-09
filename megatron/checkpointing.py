@@ -280,13 +280,13 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler,
                 state_dict['model%d' % i] = \
                     model[i].state_dict_for_save_checkpoint()
 
-        # Optimizer stuff.
-        if not args.no_save_optim:
-            if optimizer is not None:
-                state_dict['optimizer'] = optimizer.state_dict()
-            if opt_param_scheduler is not None:
-                state_dict['opt_param_scheduler'] = \
-                    opt_param_scheduler.state_dict()
+        # Optimizer state (optional): save only if enabled.
+        if not args.no_save_optim and optimizer is not None:
+            state_dict['optimizer'] = optimizer.state_dict()
+        # Always save LR scheduler to preserve LR trend across resumes
+        # even when optimizer state is not saved.
+        if opt_param_scheduler is not None:
+            state_dict['opt_param_scheduler'] = opt_param_scheduler.state_dict()
 
         # RNG states.
         if not args.no_save_rng:
@@ -615,13 +615,6 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
                     get_distributed_optimizer_checkpoint_name(
                         model_checkpoint_name)
                 optimizer.load_parameter_state(optim_checkpoint_name)
-
-            # Load scheduler.
-            if opt_param_scheduler is not None:
-                if 'lr_scheduler' in state_dict: # backward compatbility
-                    opt_param_scheduler.load_state_dict(state_dict['lr_scheduler'])
-                else:
-                    opt_param_scheduler.load_state_dict(state_dict['opt_param_scheduler'])
         except KeyError:
             print_rank_0('Unable to load optimizer from checkpoint {}. '
                          'Specify --no-load-optim or --finetune to prevent '
@@ -631,6 +624,26 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
     else:
         if (args.fp16 or args.bf16) and optimizer is not None:
             optimizer.reload_model_params()
+
+    # Load LR scheduler regardless of optimizer loading choice to keep LR trend.
+    if not release and not args.finetune and opt_param_scheduler is not None:
+        scheduler_loaded = False
+        try:
+            if 'lr_scheduler' in state_dict:  # backward compatibility
+                opt_param_scheduler.load_state_dict(state_dict['lr_scheduler'])
+                scheduler_loaded = True
+            elif 'opt_param_scheduler' in state_dict:
+                opt_param_scheduler.load_state_dict(state_dict['opt_param_scheduler'])
+                scheduler_loaded = True
+        except KeyError:
+            print_rank_0('Unable to load scheduler from checkpoint {}. '
+                         'Continuing without restoring scheduler.'.format(checkpoint_name))
+        # Fallback: if scheduler state wasn't saved in older checkpoints,
+        # reconstruct the scheduler progress from consumed samples so LR trend is preserved.
+        if not scheduler_loaded:
+            steps_to_advance = getattr(args, 'consumed_train_samples', 0)
+            if steps_to_advance and steps_to_advance > 0:
+                opt_param_scheduler.step(increment=steps_to_advance)
 
     # rng states.
     if not release and not args.finetune and not args.no_load_rng:

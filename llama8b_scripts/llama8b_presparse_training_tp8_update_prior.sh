@@ -66,11 +66,8 @@ echo "📊 发现 $AVAILABLE_FILES 个可用的预处理数据文件"
 # 根据resume标志设置checkpoint路径和兼容性参数
 if [ $RESUME_FLAG -eq 1 ]; then
     LOAD_CHECKPOINT="$TRAINING_CHECKPOINT"
-    EXTRA_CMD="$EXTRA_CMD"
-    # 🔧 稳定版本：不加载优化器状态，允许使用新的学习率
-    # EXTRA_CMD="$EXTRA_CMD --no-load-optim --no-load-rng"
-    # echo "🔄 恢复训练模式: 从训练checkpoint恢复（不加载优化器，允许新学习率）"
-    # echo "🔑 使用兼容性参数: --no-load-optim --no-load-rng"
+    EXTRA_CMD="$EXTRA_CMD"  # 恢复训练不需要特殊参数
+    echo "🔄 恢复训练模式: 从训练checkpoint恢复"
 else
     LOAD_CHECKPOINT="$PRESPARSE_CHECKPOINT"
     EXTRA_CMD="$EXTRA_CMD --no-load-optim --no-load-rng --finetune --enable-partial-load"  # 🔑 关键兼容性参数
@@ -91,8 +88,8 @@ echo "  - 稀疏模式: ${PATTERN} (2:4结构化)"
 
 # 训练参数 (参考验证的llama2脚本并针对llama8b调整)
 TRAIN_ITERS=2000
-SAVE_INTERVAL=50  # 🔧 增加保存频率，防止NaN损失过多进度
-EVAL_INTERVAL=100  
+SAVE_INTERVAL=100  # 🔧 与llama2保持一致 (原100太频繁)
+EVAL_INTERVAL=50  
 LOG_INTERVAL=1    
 WARMUP_ITERS=0     # 🔧 与llama2保持一致 (从预稀疏checkpoint开始不需要warmup)
 
@@ -103,19 +100,10 @@ LOG_FILE="$LOG_DIR/training_${DATETIME}.log"
 
 echo "📝 日志文件: $LOG_FILE"
 
-# 🔧 MaskLLM稀疏训练参数 (稳定版v2 - 保守配置，最大化数值稳定性)
-# 调整说明 (v1 → v2):
-# - gumbel-temperature 最低值从0.05提高到0.5 (避免极端softmax，exp(logit/0.5)最大约exp(6))
-# - lr-mult 从5降到2 (mask学习率降低2.5倍，减缓稀疏模式变化)
-# - weight-reg 从5e-6降到1e-6 (正则化强度降低5倍，抑制reg loss上升)
-# - 保持 clip-grad 1.0 (梯度裁剪防止爆炸)
-# 
-# 预期效果:
-# - Reg loss上升速度从+512/75iters降低到<300/75iters
-# - Grad norm峰值从0.106降低到<0.05
-# - 消除iter 413类似的梯度突变
-# - Temperature在3.0-0.5范围内保持数值稳定
-TASK_CMD="--gumbel-scale-range 1e2 5e2 --gumbel-temperature-range 4 0.5 --N 2 --M 4 --mask-only --prior-strength 3.0 --lr-mult 1 --weight-reg 1e-7 --clip-grad 0.5"
+# 🔧 MaskLLM稀疏训练参数 (参考llama2，但针对llama8b的更大规模适当调整)
+# llama2: --gumbel-scale-range 1e2 5e2 --weight-reg 1e-5
+# llama8b: 模型更大(8B vs 7B)，调整gumbel-scale起点和weight-reg
+TASK_CMD="--gumbel-scale-range 1e2 5e2 --gumbel-temperature-range 4 0.05 --N 2 --M 4 --mask-only --prior-strength 3.0 --lr-mult 10 --weight-reg 1e-5"
 
 options=" \
     --untie-embeddings-and-output-weights \
@@ -140,9 +128,8 @@ options=" \
     --micro-batch-size 1 \
     --global-batch-size 256 \
     --train-iters $TRAIN_ITERS \
-    --seed 43 \
-    --lr 1e-5 \
-    --min-lr 1e-6 \
+    --lr 5e-5 \
+    --min-lr 5e-6 \
     --lr-decay-style cosine \
     --log-interval $LOG_INTERVAL \
     --eval-iters 10 \
@@ -177,18 +164,13 @@ options=" \
 cd $PROJECT_DIR
 
 echo "🏃‍♂️ 开始预稀疏模型训练..."
-echo "📊 训练配置 (稳定版v2 + Seed修改):"
+echo "📊 训练配置 (采用验证的llama2配置):"
 echo "  - 训练迭代: $TRAIN_ITERS"
-echo "  - 保存间隔: $SAVE_INTERVAL (每50次)"
+echo "  - 保存间隔: $SAVE_INTERVAL"
 echo "  - 评估间隔: $EVAL_INTERVAL"
 echo "  - 批大小: 256 (global), 1 (micro)"
-echo "  - 学习率: 1e-5 → 1e-6"
-echo "  - Mask学习率倍数: 2 (实际mask LR = 2e-5)"
-echo "  - 正则化权重: 1e-6"
-echo "  - Gumbel温度范围: 4.0 → 0.5"
-echo "  - 梯度裁剪: 1.0"
-echo "  - 🔑 数据Seed: 42 (修改数据顺序以避开iter 496 NaN)"
-echo "  - 🔑 兼容性: --no-load-optim --no-load-rng"
+echo "  - 学习率: 2e-5 → 2e-6"
+echo "  - 🔑 兼容性: --finetune --enable-partial-load"
 
 # 启动训练 (使用正确的MaskLLM预训练器)
 torchrun --nproc_per_node=$NPROC_PER_NODE --nnodes=$NNODES --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT pretrain_maskllm.py $options 2>&1 | tee "$LOG_FILE"
