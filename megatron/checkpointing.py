@@ -292,9 +292,20 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler,
         if not args.no_save_rng:
             state_dict["rng_state"] = rng_state
 
-        # Save.
+        # Save with legacy serialization and atomic rename to avoid partial/zip tail issues.
         ensure_directory_exists(checkpoint_name)
-        torch.save(state_dict, checkpoint_name)
+        import tempfile
+        tmp_fd, tmp_path = tempfile.mkstemp(prefix=os.path.basename(checkpoint_name)+".", dir=os.path.dirname(checkpoint_name))
+        os.close(tmp_fd)
+        try:
+            torch.save(state_dict, tmp_path, _use_new_zipfile_serialization=False, pickle_protocol=4)
+            os.replace(tmp_path, checkpoint_name)
+        finally:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
 
     # Wait so everyone is done (necessary)
     if torch.distributed.is_initialized():

@@ -683,7 +683,20 @@ class ChainedOptimizer(MegatronOptimizer):
                 states.append(None)
 
         if save_states:
-            torch.save(states, filename)
+            # Atomic legacy save to reduce risk of truncated zip tail on large files.
+            import os, tempfile
+            dirname = os.path.dirname(filename)
+            fd, tmp = tempfile.mkstemp(prefix=os.path.basename(filename)+".", dir=dirname)
+            os.close(fd)
+            try:
+                torch.save(states, tmp, _use_new_zipfile_serialization=False, pickle_protocol=4)
+                os.replace(tmp, filename)
+            finally:
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except Exception:
+                    pass
 
     def load_parameter_state(self, filename):
         """Load the distributed parameter states of all optimizers from a file.

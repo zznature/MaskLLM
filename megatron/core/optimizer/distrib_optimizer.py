@@ -764,7 +764,20 @@ class DistributedOptimizer(MixedPrecisionOptimizer):
 
         state_dict = self.get_parameter_state()
         if torch.distributed.get_rank(self.data_parallel_group) == 0:
-            torch.save(state_dict, filename)
+            # Atomic legacy save for common state dict on DP rank 0.
+            import os, tempfile
+            dirname = os.path.dirname(filename)
+            fd, tmp = tempfile.mkstemp(prefix=os.path.basename(filename)+".", dir=dirname)
+            os.close(fd)
+            try:
+                torch.save(state_dict, tmp, _use_new_zipfile_serialization=False, pickle_protocol=4)
+                os.replace(tmp, filename)
+            finally:
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except Exception:
+                    pass
 
     def load_parameter_state_from_state_dict(self, state_dict):
         """Load parameter state (i.e., parameter & optimizer tensors).

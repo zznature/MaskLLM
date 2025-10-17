@@ -288,7 +288,21 @@ def _save_common_dict(
         state_dict, checkpoint_dir, validate_consistency
     )
     if torch.distributed.get_rank() == 0:
-        torch.save(common_state_dict, checkpoint_dir / COMMON_STATE_FNAME)
+        # Atomic legacy save for the common dict to avoid partial/zip tail issues.
+        import os, tempfile
+        save_path = checkpoint_dir / COMMON_STATE_FNAME
+        dirname = os.path.dirname(save_path)
+        fd, tmp = tempfile.mkstemp(prefix=os.path.basename(save_path)+".", dir=dirname)
+        os.close(fd)
+        try:
+            torch.save(common_state_dict, tmp, _use_new_zipfile_serialization=False, pickle_protocol=4)
+            os.replace(tmp, save_path)
+        finally:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
     if validate_consistency:
         # TODO: implement checking consistency with rank 0 common dict on other ranks
         pass
@@ -311,7 +325,20 @@ def _extract_and_save_sharded_objects(
         if is_main_replica(sh_obj.replica_id):
             save_path = (checkpoint_dir / sh_obj.unique_key).with_suffix('.pt')
             os.makedirs(save_path.parent, exist_ok=True)
-            torch.save(sh_obj.data, save_path)
+            # Atomic legacy save per-sharded object
+            import tempfile
+            import os
+            fd, tmp = tempfile.mkstemp(prefix=os.path.basename(save_path)+".", dir=os.path.dirname(save_path))
+            os.close(fd)
+            try:
+                torch.save(sh_obj.data, tmp, _use_new_zipfile_serialization=False, pickle_protocol=4)
+                os.replace(tmp, save_path)
+            finally:
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except Exception:
+                    pass
     return state_dict
 
 
