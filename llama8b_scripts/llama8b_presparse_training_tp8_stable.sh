@@ -115,7 +115,7 @@ echo "📝 日志文件: $LOG_FILE"
 # - Grad norm峰值从0.106降低到<0.05
 # - 消除iter 413类似的梯度突变
 # - Temperature在3.0-0.5范围内保持数值稳定
-TASK_CMD="--gumbel-scale-range 1e2 5e2 --gumbel-temperature-range 4 0.5 --N 2 --M 4 --mask-only --prior-strength 3.0 --lr-mult 1 --weight-reg 1e-7 --clip-grad 0.5"
+TASK_CMD="--gumbel-scale-range 1e2 5e2 --gumbel-temperature-range 4 0.5 --N 2 --M 4 --mask-only --prior-strength 3.0 --lr-mult 5 --weight-reg 1e-7 --clip-grad 0.5"
 
 options=" \
     --untie-embeddings-and-output-weights \

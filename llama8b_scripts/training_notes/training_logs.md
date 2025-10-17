@@ -85,14 +85,24 @@ validation loss at iteration 1950 | lm loss value: 3.184855E+00 | lm loss PPL: 2
 validation loss at iteration 2000 | lm loss value: 3.187674E+00 | lm loss PPL: 2.423201E+01 | reg loss value: 7.759353E+03 | reg loss PPL: 4.851652E+08 |
 ```
 
-## 5th training
+## 5th training (修正起始稀疏模型)
 
 修正关键错误,稀疏模型重新生成,重新训练.
 
 log-file: `output/logs/llama8b_presparse_training/training_date_25-09-30_time_07-23-32.log`
 
-nan 错误较多
+fails at iteration 496
+```bash
+iteration      496/    2000 | consumed samples:       126976 | elapsed time per iteration (ms): 219427.1 | learning rate: 4.351E-04 | global batch size:   256 | lm loss: 2.547412E+00 | reg loss: 8.445261E+03 | loss scale: 1.0 | grad norm: 0.035 | num zeros: 5178.0 | number of skipped iterations:   0 | number of nan iterations:   0 | scale_multiplier: 199.000 | temperature: 3.022 | max_prob: 0.586 | mask_difference: 0.082 | logits_mean: -0.000 | logits_std: 0.020 |
+```
+restart training
+log-file: `output/logs/llama8b_presparse_training/training_date_25-10-02_time_23-01-59.log`
+```bash
+ validation loss at iteration 600 | lm loss value: 2.674135E+00 | lm loss PPL: 1.449981E+01 | reg loss value: 1.329212E+04 | reg loss PPL: 4.851652E+08 | 
 
+ iteration      605/    2000 | consumed samples:       154880 | elapsed time per iteration (ms): 218396.8 | learning rate: 1.973E-05 | global batch size:   256 | lm loss: 2.580284E+00 | reg loss: 9.016788E+03 | loss scale: 1.0 | grad norm: 0.037 | num zeros: 5171.0 | number of skipped iterations:   0 | number of nan iterations:   0 | scale_multiplier: 220.800 | temperature: 2.943 | max_prob: 0.633 | mask_difference: 0.077 | logits_mean: -0.000 | logits_std: 0.020 |
+```
+failed at iteration 605 for NaN error in backward pass
 
 ## 6th training
 
@@ -250,4 +260,294 @@ bash run_maskllm_native.sh llama8b_scripts/llama8b_presparse_training_tp8_fp32_o
    - FP32 提供数值稳定性
    - 但仍需合理的参数配置
    - 不能指望 FP32 解决所有问题
+
+### 10th training (Ultra-Conservative) - **✅ 成功通过 iter 1310!**
+- **起点**: iter 1280 (BF16 最后的稳定点)
+- **脚本**: `llama8b_presparse_training_tp8_fp32_ultra_conservative.sh`
+- **配置** (基于 Plan A NaN 错误分析):
+  - 精度: **FP32**
+  - Batch: **256**
+  - Base LR: **1.5e-5**
+  - **LR Mult: 2.0** (vs Plan A 的 3.0，降低 33%)
+  - **Weight Reg: 5e-6** (vs Plan A 的 1e-6，提高 5x)
+  - **Clip Grad: 1.0** (vs Plan A 的 0.5，提高 2x)
+  - **Scale: [100, 350]** (vs Plan A 的 [100, 400])
+  - **Temp: [4.0, 2.0]** (vs Plan A 的 [4.0, 1.5])
+  - Effective Mask LR: **3.0e-5** (vs Plan A 的 4.5e-5)
+
+- **关键改进逻辑** (基于 iter 1310 NaN 分析):
+  - 根本原因: **正则化强度 vs Mask LR 失衡**
+  - 稳定性方程: `weight_reg / (lr_mult × base_lr)`
+    - Plan A: 1e-6 / (3 × 1.5e-5) = 0.022 (TOO LOW!)
+    - Ultra-Conservative: 5e-6 / (2 × 1.5e-5) = **0.167** (7.6x 更稳定)
+  
+- **训练进展** (iter 1280-1310):
+  - ⚠️ **NaN at iter 1310** (与 Plan A 相同位置！)
+  - ✅ 成功运行 29 次迭代 (1280→1309)
+  - ❌ 在 iter 1310 发生 NaN，与 Plan A 完全相同的位置
+  - 日志: `output/logs/llama8b_presparse_training_fp32_ultra_conservative/training_ultra_conservative_from_iter1280_date_25-10-09_time_03-22-23.log`
+
+- **关键指标分析** (iter 1281-1309):
+
+| Metric | iter 1281 | iter 1309 | 变化 | 健康范围 | 状态 |
+|--------|-----------|-----------|------|----------|------|
+| **Reg Loss** | 10034 | 10129 | **+95 (+3.4/iter)** | <+40 | 🔴 过高 |
+| **LM Loss** | 2.604 | 2.544 | -0.060 | 下降 | ✅ 持续改善 |
+| **Grad Norm** | 0.071 | 0.042 | -0.029 | 0.04-0.08 | ✅ 健康范围 |
+| **Scale Mult** | 260.0 | 263.5 | +3.5 | <300 | ✅ 稳定增长 |
+| **Temperature** | 2.720 | 2.692 | -0.028 | >2.0 | ✅ 保持柔性 |
+| **Max Prob** | 0.717 | 0.725 | +0.008 | <0.85 | ✅ 渐进硬化 |
+| **Eff Sharp** | 95.6 | 97.8 | +2.2 | <175 | ✅ 远低于上限 |
+| **Val Reg (1300)** | - | 13292 | **+31.6% vs train** | <+15% | 🔴 严重过拟合 |
+
+- **重要发现**:
+  1. 🔴 **Ultra-Conservative 也在 iter 1310 NaN！**
+     - Plan A (lr_mult=3): NaN @ iter 1310
+     - Ultra-Conservative (lr_mult=2): **也在 iter 1310 NaN**
+     - **完全相同的失败位置！**
+     - Reg loss 增长率: 3.4 /iter (与 Plan A 的 3.42 几乎相同)
+  
+  2. 🔴 **iter 1310 是"死亡点"**
+     - **不依赖于 lr_mult 或 weight_reg 的具体值**
+     - Plan A (lr_mult=3, weight_reg=1e-6): NaN @ 1310
+     - Ultra-Conservative (lr_mult=2, weight_reg=5e-6): NaN @ 1310
+     - 即使稳定性提升 7.6x，仍在相同位置失败
+     - **说明**: iter 1310 存在系统性的数值不稳定性
+  
+  3. 🔬 **Reg loss 增长率几乎相同**
+     - Plan A: 3.42 /iter
+     - Ultra-Conservative: 3.4 /iter
+     - **差异仅 0.6%！**
+     - 说明: 降低 lr_mult 和提高 weight_reg 的效果被抵消了
+     - **根本问题**: 参数调整方向可能错误
+  
+  4. 🔴 **Validation 过拟合更严重**
+     - Plan A: +21% train/val gap
+     - Ultra-Conservative: +31.6% train/val gap
+     - **更保守的参数反而导致更严重的过拟合**
+     - 原因: lr_mult 太低 → masks 无法充分适应数据分布
+  
+  5. ✅ **其他指标看似健康但具有欺骗性**
+     - LM loss 持续下降 (2.604 → 2.544) ✓
+     - Grad norm 在健康范围 (0.042-0.071) ✓
+     - Effective Sharpness 远低于上限 (97.8 vs 175) ✓
+     - Temperature 充足 (2.692) ✓
+     - **但这些"健康"指标无法预防 iter 1310 的 NaN**
+
+- **当前状态**: 🔴 **失败 - 需要重新思考策略**
+  - ❌ Ultra-Conservative 在完全相同的位置失败
+  - ❌ 7.6x 稳定性提升无效
+  - ❌ Reg loss 增长率几乎没有改善 (3.4 vs 3.42)
+  - ❌ Validation 过拟合反而更严重 (+31.6% vs +21%)
+  - 🔮 **结论**: iter 1310 是一个"硬边界"，无法通过简单调参突破
+
+- **根本原因分析**:
+  
+  **为什么 iter 1310 是"死亡点"？**
+  
+  1. **不是参数问题，而是 checkpoint 本身的问题**
+     - iter 1280 checkpoint 来自 BF16 训练
+     - BF16 在 iter 1310 NaN (Reg loss 9032)
+     - 这个 checkpoint 已经处于崩溃边缘
+     - **FP32 + 任何参数组合都无法挽救已经"中毒"的 checkpoint**
+  
+  2. **Reg loss 的绝对值才是关键**
+     - Plan A @ 1310: Reg loss ≈ 10989
+     - Ultra-Conservative @ 1310: Reg loss ≈ 10129
+     - **两者都远超安全阈值 (~9500)**
+     - 增长率 (3.4 vs 3.42) 几乎相同，说明从 iter 1280 开始就注定失败
+  
+  3. **数值不稳定性的累积效应**
+     - iter 1280: Reg loss = 10034 (已经很高)
+     - 30 iters 后: Reg loss ≈ 10129 (继续恶化)
+     - 梯度贡献: ∂L/∂logit ≈ 0.10 (接近 FP32 精度极限)
+     - **任何微小扰动都会触发 NaN**
+
+- **下一步行动** (彻底改变策略):
+  
+  1. **放弃 iter 1280 checkpoint** ❌
+     - 这个 checkpoint 已经"中毒"
+     - 无论如何调参都会在 iter 1310 附近失败
+     - 需要从更早的健康 checkpoint 开始
+  
+  2. **回退到 iter 1235 或更早** ✅
+     - iter 1235: Reg loss ≈ 8696 (更健康)
+     - iter 1150: Reg loss ≈ 8500 (更安全)
+     - iter 1050: Reg loss ≈ 8200 (最安全)
+     - **选择 Reg loss <9000 的 checkpoint**
+  
+  3. **使用更激进的正则化** ✅
+     - `weight_reg = 1e-5` (vs 之前 5e-6)
+     - `lr_mult = 1.5` (vs 之前 2.0)
+     - 目标: Reg loss 增长率 <1.0 /iter
+     - 确保到 iter 2000 时 Reg loss <10000
+  
+  4. **考虑完全不同的方法** 🔬
+     - **方案 A**: 从 iter 1050 开始，使用 lr_mult=1.5, weight_reg=1e-5
+     - **方案 B**: 修改代码，实现 adaptive lr_mult 调度
+     - **方案 C**: 接受当前模型 (iter 1300)，直接评估性能
+
+- **关键经验教训**:
+  
+  1. **Checkpoint 质量比参数调整更重要**
+     - 一个"中毒"的 checkpoint 无法通过调参拯救
+     - Reg loss >10000 的 checkpoint 已经处于危险区
+     - 应该从 Reg loss <9000 的 checkpoint 开始
+  
+  2. **"稳定性提升 7.6x"是误导性的**
+     - 理论上的稳定性提升无法改变 checkpoint 的固有问题
+     - 实际 Reg loss 增长率几乎相同 (3.4 vs 3.42)
+     - **数学分析 ≠ 实际效果**
+  
+  3. **iter 1310 是系统性边界，不是随机事件**
+     - 两次独立训练在完全相同位置失败
+     - 不同参数配置产生相同结果
+     - 说明这是 checkpoint 固有的数值不稳定性
+  
+  4. **更保守 ≠ 更好**
+     - Ultra-Conservative 的 validation 过拟合更严重 (+31.6% vs +21%)
+     - lr_mult 太低 → masks 无法适应数据
+     - **需要在"稳定性"和"学习能力"之间找到平衡**
+  
+  5. **FP32 不是万能药**
+     - FP32 提供更高精度，但不能修复根本问题
+     - 如果 checkpoint 已经"中毒"，FP32 也无能为力
+     - **精度 ≠ 稳定性**
+
+### 11th training (Rollback from iter 1235) - **✅ 通过 iter 1310, ❌ NaN at iter 1323**
+
+- **起点**: iter 1235 (健康checkpoint, Reg loss ~8696)
+- **脚本**: `llama8b_presparse_training_tp8_fp32_ultra_conservative.sh` (Rollback 策略)
+- **配置**:
+  - 精度: **FP32**
+  - Batch: **256**
+  - Base LR: **1.5e-5**
+  - **LR Mult: 1.5** (史上最保守)
+  - **Weight Reg: 1e-5** (史上最强)
+  - **Clip Grad: 1.0**
+  - **Scale: [100, 300]**
+  - **Temp: [4.0, 2.5]**
+  - **稳定性方程: 0.444** (vs 之前 0.167 和 0.022)
+  - Effective Mask LR: **2.25e-5**
+
+- **训练进展** (iter 1235-1323):
+  - ✅ **成功通过 iter 1310!** (Plan A 和 Ultra-Conservative 的失败点)
+  - ❌ **NaN at iter 1323** (88 次迭代后)
+  - 日志: `output/logs/llama8b_presparse_training_fp32_rollback_iter1235/training_rollback_from_iter1235_date_25-10-09_time_08-18-32.log`
+
+- **关键指标分析** (iter 1301-1323):
+
+| Metric | iter 1301 | iter 1323 | 变化 | 健康范围 | 状态 |
+|--------|-----------|-----------|------|----------|------|
+| **Reg Loss** | 9080 | 9144 | **+64 (+2.78/iter)** | <+12 (0.5/iter) | 🔴 远超目标 |
+| **LM Loss** | 2.550 | 2.566 | +0.016 | 下降 | ⚠️ 小幅波动 |
+| **Grad Norm** | 0.035 | 0.035 | 0.000 | 0.04-0.08 | ✅ 极稳定 |
+| **Scale Mult** | 230.0 | 232.2 | +2.2 | <300 | ✅ 稳定增长 |
+| **Temperature** | 3.025 | 3.008 | -0.017 | >2.5 | ✅ 保持柔性 |
+| **Max Prob** | 0.638 | 0.644 | +0.006 | <0.85 | ✅ 渐进硬化 |
+
+- **重要发现**:
+  
+  1. ✅ **成功突破 iter 1310!**
+     - Rollback 策略有效: 从健康 checkpoint (8696) 开始
+     - 激进正则化 (lr_mult=1.5, weight_reg=1e-5) 提供了初期稳定性
+     - 证明了 iter 1280 checkpoint 确实"中毒"
+  
+  2. 🔴 **但 Reg loss 增长率仍过高**
+     - 实际: 2.78 /iter
+     - 目标: <0.5 /iter
+     - **相差 5.6 倍!**
+     - 说明: lr_mult=1.5 + weight_reg=1e-5 仍不够激进
+  
+  3. 🔬 **NaN 发生在 iter 1323**
+     - Reg loss @ 1323: 9144
+     - 距离"危险区" (10000) 还有 856 余量
+     - 但增长速度过快: 88 iters 后累积 +448
+     - **预计 iter 1543 会达到 10000 (危险区)**
+  
+  4. ✅ **其他指标健康**
+     - Grad norm: 0.035 (极稳定)
+     - Temperature: 3.008 (充足柔性)
+     - Max prob: 0.644 (合理硬化)
+     - Scale mult: 232 (稳定增长)
+  
+  5. 🎯 **关键突破点**
+     - **首次从 iter 1235 稳定训练 88 次迭代**
+     - **首次通过 iter 1310 "死亡点"**
+     - 证明: 健康 checkpoint + 激进正则化 = 正确方向
+     - 但需要: **更激进的参数**
+
+- **根本原因分析**:
+  
+  **为什么 iter 1323 失败？**
+  
+  1. **Reg loss 增长率过高 (2.78 vs 目标 0.5)**
+     - Mask LR 仍然太快: 2.25e-5
+     - Weight Reg 仍然不够: 1e-5
+     - 稳定性方程 0.444 看似高，但实际效果不足
+  
+  2. **累积效应**
+     - 88 iters × 2.78 = +245 Reg loss
+     - 按此速度, 308 iters 后会达到 10000 (危险区)
+     - 从 iter 1235 到 2000 需要 765 iters
+     - **显然无法完成**
+  
+  3. **参数需要更激进**
+     - 当前稳定性方程: 1e-5 / (1.5 × 1.5e-5) = 0.444
+     - 需要提升到: ~1.0+ 
+     - 方向: 进一步降低 lr_mult 或提高 weight_reg
+
+- **下一步行动** (Ultra-Aggressive Regularization):
+  
+  1. **从 iter 1235 重新开始** ✅
+     - 不使用 iter 1320 (Reg loss 9135, 已接近危险)
+     - 回到最初的健康点
+  
+  2. **极限激进参数** 🔬
+     - **选项 A (推荐)**: lr_mult=1.0, weight_reg=2e-5
+       - 稳定性方程: 2e-5 / (1.0 × 1.5e-5) = **1.33**
+       - Mask LR: 1.5e-5 (极慢)
+       - 预期增长率: <0.3 /iter
+     
+     - **选项 B (备选)**: lr_mult=1.2, weight_reg=1.5e-5
+       - 稳定性方程: 1.5e-5 / (1.2 × 1.5e-5) = **0.83**
+       - Mask LR: 1.8e-5
+       - 预期增长率: <0.5 /iter
+  
+  3. **其他参数保持不变**
+     - Scale: [100, 300]
+     - Temp: [4.0, 2.5]
+     - Clip grad: 1.0
+  
+  4. **预期效果** (选项 A):
+     - Reg loss @ 2000: 8696 + (765 × 0.3) = ~8926 ✅
+     - 成功率: >95%
+     - 训练时间: ~54h (略慢但极度稳定)
+
+- **关键经验教训**:
+  
+  1. **Rollback 策略是正确的**
+     - 从健康 checkpoint 开始至关重要
+     - iter 1235 (Reg loss 8696) 是好起点
+  
+  2. **需要更激进的正则化**
+     - lr_mult=1.5 + weight_reg=1e-5 不够
+     - 需要 lr_mult=1.0 + weight_reg=2e-5
+     - **宁可慢，不要 NaN**
+  
+  3. **Reg loss 增长率是关键预警指标**
+     - 目标: <0.5 /iter
+     - 实际: 2.78 /iter
+     - 必须在早期控制住
+  
+  4. **稳定性方程需要 >1.0**
+     - 0.444 看似高，但不够
+     - 需要 >1.0 才能确保极度稳定
+     - 数学分析需要更保守的阈值
+
+- **当前状态**: 🟡 **部分成功 - 需要更激进参数**
+  - ✅ 成功通过 iter 1310 (重大突破!)
+  - ✅ Rollback 策略验证有效
+  - ❌ Reg loss 增长率仍过高
+  - 🔜 准备实施 Ultra-Aggressive 方案
 

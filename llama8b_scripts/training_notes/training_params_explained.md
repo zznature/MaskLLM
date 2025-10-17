@@ -11,6 +11,12 @@
 
 ---
 
+## 原理要点（MaskLLM）
+稳定性方程: stability = weight_reg / (lr_mult × base_lr)。BF16下建议 ≥0.5；越低越容易reg暴涨与NaN，越高mask学得慢、PPL下降慢。
+lr_mult 控制 mask 的步长（越大学得越快，但更不稳）。
+weight_reg 约束 mask logits 不偏离先验（越大越稳，但学得慢）。
+gumbel-scale 越大越“硬化”；gumbel-temperature 越低越确定性；两者加速mask确定，但也会放大数值风险。
+
 ## 1. 基础训练参数
 
 ### 1.1 学习率配置
