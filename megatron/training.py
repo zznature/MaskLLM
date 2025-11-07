@@ -610,7 +610,7 @@ def train_step(forward_step_func, data_iterator,
 
 def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                  loss_scale, report_memory_flag, skipped_iter,
-                 grad_norm, params_norm, num_zeros_in_grad, diff_mask_dict):
+                 grad_norm, params_norm, num_zeros_in_grad, diff_mask_dict, nan_manager=None):
     """Log training information such as losses, timing, ...."""
     args = get_args()
     timers = get_timers()
@@ -849,6 +849,12 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                 report_theoretical_memory(args, num_microbatches=num_microbatches, verbose=True)
             report_memory('(after {} iterations)'.format(iteration))
             report_memory_flag = False
+        
+        # Log NaN hotspot statistics if NaN manager is enabled
+        if nan_manager is not None and nan_manager.nan_hotspots:
+            top_hotspots = nan_manager.get_top_hotspots(top_k=5)
+            print_rank_0(f'  NaN Hotspots (top 5): {top_hotspots}')
+        
         timers.log(timers_to_log, normalizer=args.log_interval)
 
     return report_memory_flag
@@ -934,6 +940,22 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 
     # Write args to tensorboard
     write_args_to_tensorboard()
+    
+    # Initialize NaN recovery manager if enabled
+    nan_manager = None
+    if getattr(args, 'nan_recovery_mode', False):
+        from megatron.core.utils.nan_recovery_manager import NaNRecoveryManager
+        nan_manager = NaNRecoveryManager(args)
+        print_rank_0('[NaN Recovery] NaN recovery mode enabled')
+        
+        # Inject nan_manager and extreme_grad_threshold into all GradBuffer buckets
+        for model_module in model:
+            if isinstance(model_module, DDP) and hasattr(model_module, 'grad_buffers'):
+                for grad_buffer in model_module.grad_buffers.values():
+                    for bucket in grad_buffer.buckets:
+                        bucket.set_nan_manager(nan_manager)
+                        if hasattr(args, 'extreme_grad_threshold'):
+                            bucket.set_extreme_grad_threshold(args.extreme_grad_threshold)
 
     # Turn on training mode which enables dropout.
     for model_module in model:
@@ -1053,6 +1075,47 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         iteration += 1
                 
         args.iteration = iteration
+        
+        # Check for NaN and adjust hyperparameters if needed
+        if nan_manager is not None:
+            # Check if any bucket detected NaN
+            nan_detected = False
+            for model_module in model:
+                if isinstance(model_module, DDP) and hasattr(model_module, 'grad_buffers'):
+                    for grad_buffer in model_module.grad_buffers.values():
+                        for bucket in grad_buffer.buckets:
+                            if bucket.has_nan_detected():
+                                nan_detected = True
+                                bucket.reset_nan_flag()
+            
+            if not nan_detected:
+                # Reset consecutive count on successful step
+                nan_manager.reset_consecutive_count()
+            
+            # Check if hyperparameters should be adjusted
+            if nan_manager.should_adjust_hyperparams():
+                adjusted = nan_manager.get_adjusted_params(args)
+                print_rank_0(f"\n[Auto-Recovery] Consecutive NaN count: {nan_manager.consecutive_nan_count}")
+                print_rank_0(f"  Adjusting: lr {args.lr:.2e} -> {adjusted['lr']:.2e}, "
+                           f"clip_grad {args.clip_grad} -> {adjusted['clip_grad']}")
+                
+                # Apply adjustments
+                args.lr = adjusted['lr']
+                args.clip_grad = adjusted['clip_grad']
+                
+                # Update optimizer learning rate
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = adjusted['lr']
+                
+                # Update Gumbel temperature if applicable
+                if adjusted['gumbel_temp_min'] is not None and hasattr(args, 'gumbel_temperature_range'):
+                    args.gumbel_temperature_range = (args.gumbel_temperature_range[0], adjusted['gumbel_temp_min'])
+                    print_rank_0(f"  Gumbel temp min -> {adjusted['gumbel_temp_min']}")
+            
+            # Check if checkpoint rollback should be considered
+            if nan_manager.should_rollback_checkpoint():
+                print_rank_0(f"\n[Critical] NaN count reached {nan_manager.consecutive_nan_count}. "
+                           f"Consider rolling back to a previous checkpoint.")
         batch_size = mpu.get_data_parallel_world_size() * \
                      args.micro_batch_size * \
                      get_num_microbatches()
@@ -1075,7 +1138,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                           optimizer.param_groups[0]['lr'],
                                           iteration, loss_scale,
                                           report_memory_flag, skipped_iter,
-                                          grad_norm, params_norm, num_zeros_in_grad, diff_mask_dict=diff_mask_dict)
+                                          grad_norm, params_norm, num_zeros_in_grad, diff_mask_dict=diff_mask_dict,
+                                          nan_manager=nan_manager)
 
         # Autoresume
         if args.adlr_autoresume and \

@@ -161,6 +161,10 @@ options=" \
     --exp-name llama8b-tp8-mask-only-c4-wanda \
     --no-save-optim \
     --no-save-rng \
+    --nan-recovery-mode \
+    --extreme-grad-threshold 1e4 \
+    --nan-adjust-threshold 3 \
+    --nan-rollback-threshold 5 \
     $EXTRA_CMD $TASK_CMD "
 
 cd $PROJECT_DIR
