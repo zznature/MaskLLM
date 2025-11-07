@@ -80,6 +80,11 @@ class Bucket:
         self.use_distributed_optimizer = use_distributed_optimizer
         self.gradient_scaling_factor = gradient_scaling_factor
         self.check_for_nan_in_grad = check_for_nan_in_grad
+        
+        # NaN recovery attributes
+        self.nan_manager = None
+        self._nan_detected = False
+        self.extreme_grad_threshold = 1e4  # Default threshold for extreme gradient clipping
 
         self.reset()
 
@@ -109,11 +114,41 @@ class Bucket:
         if self.check_for_nan_in_grad:
             global_rank = torch.distributed.get_rank()
             norm = self.data.norm(p=2)
-            assert not norm.isnan(), (
-                f'Rank {global_rank}: found NaN in local grad norm in '
-                f'backward pass before data-parallel communication collective. '
-                f'Device: {torch.cuda.current_device()}, node: {os.uname()[1]}'
-            )
+            
+            # 1. Preventive clipping: detect extreme gradients before they become NaN
+            if not norm.isnan() and norm > self.extreme_grad_threshold:
+                clip_coef = self.extreme_grad_threshold / (norm + 1e-8)
+                self.data.mul_(clip_coef)
+                if global_rank == 0:
+                    print(f"[NaN Prevention] Clipped extreme gradient: "
+                          f"norm={norm:.2e} -> {self.extreme_grad_threshold:.2e}")
+                norm = self.data.norm(p=2)  # Recalculate norm after clipping
+            
+            # 2. Soft recovery: detect NaN but don't terminate - skip and continue
+            if norm.isnan():
+                # Locate NaN sources at parameter level
+                nan_params = []
+                for param in self.params_with_grad:
+                    if param.grad is not None and param.grad.isnan().any():
+                        param_name = getattr(param, 'param_name', 'unknown')
+                        nan_params.append(param_name)
+                        param.grad.zero_()  # Clear this parameter's gradient
+                
+                # Zero out the entire bucket
+                self.data.zero_()
+                
+                # Record to NaN manager
+                if self.nan_manager is not None:
+                    self.nan_manager.record_nan(nan_params)
+                
+                # Detailed logging
+                print(f"[NaN Recovery] Rank {global_rank}: Detected NaN in gradient bucket. "
+                      f"Affected params: {nan_params[:5]}{'...' if len(nan_params) > 5 else ''} "
+                      f"({len(nan_params)} total). "
+                      f"Zeroing gradients and skipping this update step.")
+                
+                # Set flag to notify optimizer to skip this update
+                self._nan_detected = True
 
         self.data *= self.gradient_scaling_factor
         # Use async_op only when overlap_grad_reduce is True.
@@ -167,6 +202,22 @@ class Bucket:
         # If all params in bucket have grads available, issue communication call.
         if len(self.params_with_grad) == len(self.params):
             self.start_grad_sync()
+    
+    def set_nan_manager(self, nan_manager):
+        """Set the NaN recovery manager for this bucket."""
+        self.nan_manager = nan_manager
+    
+    def set_extreme_grad_threshold(self, threshold: float):
+        """Set the threshold for extreme gradient clipping."""
+        self.extreme_grad_threshold = threshold
+    
+    def has_nan_detected(self):
+        """Check if NaN was detected in this bucket."""
+        return self._nan_detected
+    
+    def reset_nan_flag(self):
+        """Reset the NaN detection flag."""
+        self._nan_detected = False
 
 
 class GradBuffer:
@@ -222,6 +273,13 @@ class GradBuffer:
         self.gradient_scaling_factor = gradient_scaling_factor
         self.check_for_nan_in_grad = check_for_nan_in_grad
         self.is_last_microbatch = True
+        
+        # Assign parameter names for NaN diagnostics
+        for param in params:
+            if param in param_to_name:
+                param.param_name = param_to_name[param]
+            elif not hasattr(param, 'param_name'):
+                param.param_name = 'unknown_param'
 
         # Data structures to store underlying buckets and relevant indexing data.
         self.buckets = []

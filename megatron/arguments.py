@@ -845,6 +845,15 @@ def _add_training_args(parser):
     group.add_argument('--no-check-for-nan-in-loss-and-grad', action='store_false',
                        help='Check for NaNs in loss and grad',
                        dest='check_for_nan_in_loss_and_grad')
+    group.add_argument('--nan-recovery-mode', action='store_true',
+                       help='Enable NaN recovery mode: automatically skip NaN steps, '
+                       'detect hotspots, and adjust hyperparameters.')
+    group.add_argument('--extreme-grad-threshold', type=float, default=1e4,
+                       help='Threshold for clipping extreme gradients to prevent NaN.')
+    group.add_argument('--nan-adjust-threshold', type=int, default=3,
+                       help='Number of consecutive NaN occurrences before auto-adjusting hyperparams.')
+    group.add_argument('--nan-rollback-threshold', type=int, default=5,
+                       help='Number of consecutive NaN occurrences to trigger checkpoint rollback warning.')
     group.add_argument('--distribute-saved-activations',
                        action='store_true',
                        help='If set, distribute recomputed activations '
